@@ -26,6 +26,7 @@ use IEEE.math_real.all;
 
 library WORK;
 use WORK.FILTER_TYPES.ALL;
+use WORK.SYS_PARAM.ALL;
 
 entity FIR_2D is
     port (
@@ -67,7 +68,7 @@ architecture Behavioral of FIR_2D is
 --    signal LB0_Adr_A, LB0_Adr_B         : std_logic_vector(8 downto 0) := (others => '0');  -- Linebuffer 0 write (A) and read (B) addresses
     
     -- Linebuffer 1 connections
-    signal LB1_En_A,  LB1_En_B          : std_logic := '1';                                 -- Write enable, read enable
+    signal LB1_En_A,  LB1_En_B          : std_logic := '0';                                 -- Write enable, read enable
     signal LB1_Do                       : std_logic_vector(7 downto 0) := (others => '0');  -- Data in, data out
 --    signal LB1_Adr_A, LB1_Adr_B         : std_logic_vector(8 downto 0) := (others => '0');  -- Write address, read address
         
@@ -87,16 +88,17 @@ architecture Behavioral of FIR_2D is
     component RAM_DP is
         port (
             -- Inputs 
-            Clk     : in std_logic;                         -- RAM driven by 1 clock
+            Clk_a   : in std_logic;                         -- RAM write clock
+            Clk_b   : in std_logic;                         -- RAM read clock
             Reset   : in std_logic;                         -- Reset to clear output
         -- Port A (Write)
             En_a    : in std_logic;                         -- Port A Enable
-            Adr_a   : in std_logic_vector(9 downto 0);      -- Port A (Write) Address
-            Di      : in std_logic_vector(7 downto 0);      -- Port A (Write) Data In
+            Adr_a   : in std_logic_vector(RAM_ADR_BUS_WIDTH-1 downto 0);      -- Port A (Write) Address
+            Di      : in std_logic_vector(BPP-1 downto 0);      -- Port A (Write) Data In
         -- Port B (Read)
             En_b    : in std_logic;                         -- Port B Enable
-            Adr_b   : in std_logic_vector(9 downto 0);      -- Port B (Read) Address
-            Do      : out std_logic_vector(7 downto 0)      -- Port B (Read) Data Out
+            Adr_b   : in std_logic_vector(RAM_ADR_BUS_WIDTH-1 downto 0);      -- Port B (Read) Address
+            Do      : out std_logic_vector(BPP-1 downto 0)      -- Port B (Read) Data Out
         );
     end component;
     
@@ -111,7 +113,8 @@ begin
     Line_Buffer0: RAM_DP
         port map (
             -- Inputs 
-            Clk     => Clk,
+            Clk_a   => Clk,
+            Clk_b   => Clk,
             Reset   => Reset,
             -- Port A (Write)
             En_a    => LB0_En_A,
@@ -126,7 +129,8 @@ begin
     Line_Buffer1: RAM_DP
         port map (
             -- Inputs 
-            Clk     => Clk,
+            Clk_a   => Clk,
+            Clk_b   => Clk,
             Reset   => Reset,
             -- Port A (Write)
             En_a    => LB1_En_A,
@@ -169,16 +173,25 @@ begin
             o_Data  => FIR2_Do
         );
 
-    Address_Counter: process(Clk)
+    Write_Address_Counter: process(Clk)
     begin
         if (rising_edge(Clk)) then
-            if (Adr_Cntr = 639) then
+            if (Adr_Cntr = 7) then
                 Adr_Cntr <= 0;    
+                LB1_En_A <= '1';
+                LB1_En_B <= '1';
             else
                 Adr_Cntr <= Adr_Cntr + 1;
             end if;
             Write_Adr <= std_logic_vector(to_unsigned(Adr_Cntr, 10));
             Read_Adr  <= std_logic_vector(to_unsigned(Adr_Cntr, 10));
+        end if;
+    end process;
+    
+    Read_Address_Counter: process(Clk)
+    begin
+        if (rising_edge(Clk)) then
+        
         end if;
     end process;
     
@@ -194,7 +207,7 @@ begin
     Output_Control: process(Clk)
     begin   
         if(rising_edge(Clk)) then
-            if (Pixel_Ready = 8) then
+--            if (Pixel_Ready = 8) then
                 for i in MAC'high downto 7 loop
                     if MAC(i) = '1' then
                         MSB_Loc <= i;
@@ -205,10 +218,10 @@ begin
                 else
                     o_Data <= MAC(7 downto 0);
                 end if;
-            else
-                Pixel_Ready <= Pixel_Ready + 1;
-                o_Data      <= (others => 'Z');
-            end if;
+--            else
+--                Pixel_Ready <= Pixel_Ready + 1;
+--                o_Data      <= (others => 'Z');
+--            end if;
         end if;
     end process;
     

@@ -1,3 +1,5 @@
+library WORK; 
+use WORK.SYS_PARAM.ALL;
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 
@@ -17,9 +19,9 @@ end Signal_Generator;
 architecture Signal_Generator_Arch of Signal_Generator is
 
     ---- Signal declarations ----
-    constant COUNT_LIMIT : natural := (100_000_000 / Frequency) / 2;     -- Count limit gives the number of system clock cycles in one clock enable pulse
+    constant COUNT_LIMIT : natural := (SYS_XTAL_FREQ / Frequency) / 2;     -- Count limit gives the number of system clock cycles in one clock enable pulse
     signal r_Counter     : natural range 0 to Count_Limit := 0;    -- Counter holds the number clock cycles itereated so far in the clock enable cycles
-    signal r_Pulse       : std_logic := '0';                       -- Clock enable register, fed to the output
+    signal r_Pulse       : std_logic := '1';                       -- Clock enable register, fed to the output
     
 begin        
     
