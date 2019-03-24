@@ -1,73 +1,62 @@
+library WORK;
+use WORK.SYS_PARAM.ALL;
 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
---use IEEE.STD_LOGIC_ARITH.ALL;
---use IEEE.std_logic_unsigned.all;
---use ieee.math_real.all;
 use IEEE.NUMERIC_STD.ALL;
 
 entity VGA_Controller is
     Port (
         -- Inputs
-        Clk         : in std_logic;
-        i_Red       : in std_logic_vector(3 downto 0);
-        i_Green     : in std_logic_vector(3 downto 0);
-        i_Blue      : in std_logic_vector(3 downto 0);
+        Clk          : in std_logic;
+        i_Pixel_Data : in std_logic_vector(BPP-1 downto 0);
         -- Outputs
-        o_HSync     : out std_logic;
-        o_VSync     : out std_logic;
-        o_RED       : out std_logic_vector(3 downto 0);
-        o_BLUE      : out std_logic_vector(3 downto 0);
-        o_GREEN     : out std_logic_vector(3 downto 0)
+        o_HSync      : out std_logic;
+        o_VSync      : out std_logic;
+        o_Red        : out std_logic_vector(3 downto 0);
+        o_Blue       : out std_logic_vector(3 downto 0);
+        o_Green      : out std_logic_vector(3 downto 0)
     );
 end VGA_Controller;
 
 architecture Behavioral of VGA_Controller is
-
-    -- 640x480 @ 60Hz --
-    constant FRAME_WIDTH  : natural := 640;
-    constant FRAME_HEIGHT : natural := 480;
-    
-    constant H_FP     : natural := 16;    --H front porch width (pixels)
-    constant H_SP   : natural := 96;      --H sync pulse width (pixels)
-    constant H_MAX    : natural := 800;   --H total period (pixels)
-    
-    constant V_FP     : natural := 10;    --V front porch width (lines)
-    constant V_SP   : natural := 2;       --V sync pulse width (lines)
-    constant V_MAX    : natural := 525;   --V total period (lines)
-    
-    constant H_POL : std_logic := '0';
-    constant V_POL : std_logic := '0';
-    
+ 
     -- Pixel clock, in this case 108 MHz
-    signal pixel_clk : std_logic;
+    signal Pixel_Clk : std_logic;
     
     -- The active signal is used to signal the active region of the screen (when not blank)
-    signal active  : std_logic_vector(3 downto 0) := x"0";
+    signal ACTIVE  : std_logic_vector(3 downto 0) := x"0";
     
     -- Horizontal and Vertical counters
     signal h_cntr : unsigned(11 downto 0) := (others =>'0');
     signal v_cntr : unsigned(11 downto 0) := (others =>'0');
     
     -- Horizontal and Vertical Sync
-    signal h_sync : std_logic := not(H_POL);
-    signal v_sync : std_logic := not(V_POL);
+    signal HSync : std_logic := not(H_POL);
+    signal VSync : std_logic := not(V_POL);
     
-    --The main VGA R, G and B signals, validated by active
+    --VGA RGB signals, enabled with 'active' signal when inside active region
+    signal VGA_Red_Ctrl   : std_logic_vector(3 downto 0);
+    signal VGA_Green_Ctrl : std_logic_vector(3 downto 0);
+    signal VGA_Blue_Ctrl  : std_logic_vector(3 downto 0);
     
-    signal vga_red_ctrl   : std_logic_vector(3 downto 0);
-    signal vga_green_ctrl : std_logic_vector(3 downto 0);
-    signal vga_blue_ctrl  : std_logic_vector(3 downto 0);
-    
-    signal vga_red    : std_logic_vector(3 downto 0);
-    signal vga_green  : std_logic_vector(3 downto 0);
-    signal vga_blue   : std_logic_vector(3 downto 0);
+    -- Registers to hold input values
+    signal VGA_Red    : std_logic_vector(3 downto 0);
+    signal VGA_Green  : std_logic_vector(3 downto 0);
+    signal VGA_Blue   : std_logic_vector(3 downto 0);
 
 
 begin
 
-    pixel_clk <= clk;
-
+    -- Local clock register
+    Pixel_Clk <= Clk;
+    
+    -- Buffer inputs
+    VGA_Red     <= i_Pixel_Data(11 downto 8);
+    VGA_Green   <= i_Pixel_Data(7 downto 4);
+    VGA_Blue    <= i_Pixel_Data(3 downto 0);
+    
+    
     Horizontal_Counter: process (pixel_clk)
     begin
         if (rising_edge(pixel_clk)) then
@@ -91,52 +80,47 @@ begin
     end process;
 
      -- Horizontal sync
-    HSync: process (pixel_clk)
+    HSync_Generator: process (pixel_clk)
     begin
         if (rising_edge(pixel_clk)) then
             if (h_cntr >= (H_FP + FRAME_WIDTH - 1)) and (h_cntr < (H_FP + FRAME_WIDTH + H_SP - 1)) then
-                h_sync <= H_POL;
+                HSync <= H_POL;
             else
-                h_sync <= not(H_POL);
+                HSync <= not(H_POL);
             end if;
         end if;
     end process;
 
     -- Vertical sync
-    VSYNC: process (pixel_clk)
+    VSync_Generator: process (pixel_clk)
     begin
         if (rising_edge(pixel_clk)) then
             if (v_cntr >= (V_FP + FRAME_HEIGHT - 1)) and (v_cntr < (V_FP + FRAME_HEIGHT + V_SP - 1)) then
-                v_sync <= V_POL;
+                VSync <= V_POL;
             else
-                v_sync <= not(V_POL);
+                VSync <= not(V_POL);
             end if;
         end if;
     end process;
      
      
-    -- active signal is high when drawing the active frame region
-    active <= "1111" when h_cntr < FRAME_WIDTH and v_cntr < FRAME_HEIGHT else "0000";
-
-    -- Buffer inputs
-    vga_red <= i_Red;
-    vga_green <= i_Green;
-    vga_blue <= i_Blue;
+    -- Active signal is high when drawing inside the active frame region
+    ACTIVE <= "1111" when (h_cntr < FRAME_WIDTH) and (v_cntr < FRAME_HEIGHT) else "0000";
     
     ------------------------------------------------------------
     -- Turn Off VGA RBG Signals if outside of the active screen
     -- Make a 4-bit AND logic with the R, G and B signals
     ------------------------------------------------------------
-    vga_red_ctrl    <= active and vga_red;
-    vga_green_ctrl  <= active and vga_green;
-    vga_blue_ctrl   <= active and vga_blue;
+    VGA_Red_Ctrl    <= ACTIVE and VGA_Red;
+    VGA_Green_Ctrl  <= ACTIVE and VGA_Green;
+    VGA_Blue_Ctrl   <= ACTIVE and VGA_Blue;
     
     
      -- Assign outputs
-    o_HSync <= h_sync;
-    o_VSync <= v_sync;
-    o_RED   <= vga_red_ctrl;
-    o_BLUE  <= vga_blue_ctrl;
-    o_GREEN <= vga_green_ctrl;
+    o_HSync <= HSync;
+    o_VSync <= VSync;
+    o_RED   <= VGA_Red_Ctrl;
+    o_BLUE  <= VGA_Blue_Ctrl;
+    o_GREEN <= VGA_Green_Ctrl;
 
 end Behavioral;

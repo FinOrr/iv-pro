@@ -6,11 +6,10 @@ entity OV7670_Capture is
     port (
         -- Inputs
         i_Pixel_Clk   :   in  std_logic;
-        i_H_Ref       :   in  std_logic;
-        i_Pixel_Data  :   in  std_logic_vector(7 downto 0);
+        i_HRef       :   in  std_logic;
+        i_Pixel_Data  :   in  std_logic_vector(7  downto 0);
         -- Outputs
         o_En_a        :   out std_logic;        
-        o_We          :   out std_logic;        
         o_Adr_a       :   out std_logic_vector(9 downto 0);        
         o_Do          :   out std_logic_vector(11 downto 0)
     );
@@ -26,51 +25,50 @@ architecture Behavioral of OV7670_Capture is
     signal Byte_Cache   :   std_logic_vector(11 downto 0) := (others => '0');        -- 1px = 2B, so we need to store the last byte of input 
     -- I/O Buffers
     signal Pixel_Clk    :   std_logic;
-    signal H_Ref        :   std_logic;
-    signal Pixel_Data   :   std_logic_vector(7 downto 0) := (others => '0');
-    signal En_a         :   std_logic := '1';
-    signal We           :   std_logic;
+    signal HRef         :   std_logic;
+    signal Pixel_Data   :   std_logic_vector(7 downto 0);
+    signal En_a         :   std_logic := '0';
     
 begin
     
     -- Connect IO
     Pixel_Clk   <= i_Pixel_Clk; 
-    H_Ref       <= i_H_Ref;
+    HRef        <= i_HRef;
     Pixel_Data  <= i_Pixel_Data;
     o_En_a      <= En_a;
-    o_We        <= We;
     o_Adr_a     <= Addr;        -- Counter 'Addr' keeps count of the RAM address to write to (on PORT A) 
     o_Do        <= Byte_Cache;  -- Byte Cache collects the RGB bits and sends them to output
     
     State_Control: process(Pixel_Clk)
     begin
-        if (falling_edge(Pixel_Clk)) then
+        if (rising_edge(Pixel_Clk)) then
             
             -- FSM controls the camera capture behaviour
             case State is
                 -- State machine is idle when in blanking periods
                 when IDLE =>
-                    if (H_Ref = '1') then
+                    if (HRef = '1') then
                         State <= CACHE;
                     else
                         State <= IDLE;
                     end if;
                     
-                -- Byte 1 of 2 needs to be cached before writing RGB bits to memory
+                -- Receive byte 2 of 2 and write it to memory. If it's the last pixel then go idle, otherwise cache the next byte.
                 when CACHE =>
-                    if (H_Ref = '1') then
+                    if (HRef = '1') then
                         State <= WRITE;
                     else
                         State <= IDLE;
                     end if;
-                
-                -- Receive byte 2 of 2 and write it to memory. If it's the last pixel then go idle, otherwise cache the next byte.
+                    
+                -- Byte 1 of 2 needs to be cached before writing RGB bits to memory
                 when WRITE =>
-                    if (H_Ref = '1') then
+                    if (HRef = '1') then
                         State <= CACHE;
                     else
                         State <= IDLE;
                     end if;
+                    
             end case;
         end if;
     end process;
@@ -79,29 +77,26 @@ begin
     Capture: process(Pixel_Clk)
     begin
         if (rising_edge(Pixel_Clk)) then
-            case State is
-            
-                when IDLE =>
-                    Addr    <= (others => '0');   -- Reset RAM pointer to 0 for new line
-                    We      <= '0';
-                    En_a    <= '0';
-                    
-                when CACHE =>
-                    We      <= '0';     -- Disable Write_Enable
-                    En_a    <= '0';     -- Disable PORT A
-                    Byte_Cache(11 downto 6) <= Pixel_Data(6 downto 3) & Pixel_Data(1 downto 0);     -- Cache R[3:0] AND G[3:2] into data cache
+            if( i_HRef = '1') then
+                case State is
                 
-                when WRITE =>
-                    Byte_Cache(5 downto 0) <= Pixel_Data(7 downto 6) & Pixel_Data(4 downto 1);   -- Load G[1:0] AND B[3:0] into cache
-                    We      <= '1';     -- Enable RAM Write Enable
-                    En_a    <= '1';     -- Enable RAM PORT A
-                    if (unsigned(Addr) = 639) then
-                        Addr <= (others => '0');
-                    else
-                        Addr    <= std_logic_vector(unsigned(Addr) + 1);        -- Increment RAM pointer
-                    end if;                    
-                    
-            end case;
+                    when IDLE =>
+                        En_a    <= '0';
+                        
+                    when WRITE =>
+                        En_a    <= '1';     -- Enable PORT A
+                        Byte_Cache(7 downto 0) <= Pixel_Data(7 downto 4) & Pixel_Data(3 downto 0);   -- Load G[3:0] AND B[3:0] into cache
+    
+                    when CACHE =>
+                        Byte_Cache(11 downto 8) <= Pixel_Data(3 downto 0);     -- Save R[3:0] into data cache
+                        En_a    <= '0';     -- Disable RAM PORT A
+                        if (unsigned(Addr) = 639) then
+                            Addr    <= (others => '0');
+                        else
+                            Addr    <= std_logic_vector(unsigned(Addr) + 1);        -- Increment RAM pointer
+                        end if;
+                end case;
+            end if;
         end if;
                     
     end process;

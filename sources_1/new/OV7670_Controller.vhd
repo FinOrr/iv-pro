@@ -1,12 +1,13 @@
 -- Wrapper to connect the serial communication logic with the camera register addresses and values
-
+library WORK;
+use WORK.SYS_PARAM.ALL;
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 
 entity OV7670_Controller is
     generic(
-        System_Freq : natural range 0 to 400_000_000 := 100_000_000;   -- Global system clock frequency, 100MHz default
-        Bus_Freq    : natural range 0 to 400_000     := 100_000        -- SCL bus frequency, 100KHz default
+        System_Freq : natural range 0 to 400_000_000 := SYS_XTAL_FREQ;  -- Global system clock frequency, 100MHz default
+        Bus_Freq    : natural range 0 to 400_000     := SCCB_SCL_FREQ   -- SCL bus frequency, 100KHz default
     );
     port (
         -- Inputs
@@ -63,9 +64,6 @@ architecture Behavioral of OV7670_Controller is
     signal   CE_Count  : integer range 0 to Max_CE_Count := 0;
     signal   SCCB_CLK  : std_logic := '0';
     
-    -- SCCB Write Address for OV7670 camera
-    constant OV7670_WRITE_ID : std_logic_vector(7 downto 0) := x"42";
-    
 begin
     -- Buffer reset input to register
     r_Reset <= i_Reset;
@@ -80,7 +78,7 @@ begin
             i_Enable    => r_Enable,
             i_Reset     => r_Reset,
             i_Start     => r_Ready,
-            i_Device_ID => OV7670_WRITE_ID,
+            i_Device_ID => CAMERA_WRITE_ID,
             i_Address   => r_Reg_Data(15 downto 8),
             i_Data      => r_Reg_Data( 7 downto 0),
             -- Outputs 
@@ -102,11 +100,13 @@ begin
     
     SCL_Divider: process(i_Clk)
     begin
-        if (CE_Count = Max_CE_Count - 1) then
-            SCCB_CLK <= not (SCCB_CLK);
-            CE_Count <= 0;
-        else
-            CE_Count <= CE_Count + 1;
+        if(rising_edge(i_Clk)) then
+            if (CE_Count = Max_CE_Count - 1) then
+                SCCB_CLK <= not (SCCB_CLK);
+                CE_Count <= 0;
+            else
+                CE_Count <= CE_Count + 1;
+            end if;
         end if;
     end process;
     

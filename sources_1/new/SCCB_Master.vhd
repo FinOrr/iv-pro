@@ -15,9 +15,10 @@
 -- Revision:
 -- Revision 0.01 - File Created
 -- Additional Comments:
--- 
+--  
 ----------------------------------------------------------------------------------
-
+library WORK;
+use WORK.SYS_PARAM.ALL;
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 
@@ -119,7 +120,7 @@ begin
                             Bit_Count <= 7;
                             
                         when SLAVE_ADR =>   -- Send addresses MSB->LSB
-                            o_SDA <= i_Device_ID(Bit_Count);
+                            o_SDA <= r_Device_ID(Bit_Count);
                             if (Bit_Count = 0) then                            
                                 state <= DC1;
                             else

@@ -95,9 +95,10 @@ architecture Behavioral of Top_Level is
     signal Clk_25   :   std_logic := '0';       -- 25MHz clock, used to drive camera and VGA display
     
     -- Data captured by the camera is fed directly into the VGA display
-    signal VGA_Fetch_Adr    : std_logic_vector(9 downto 0) := (others => '0');
-    signal VGA_Fetch_Cntr   : natural range 0 to 639 := 638;
-    signal VGA_Fetch_Data   : std_logic_vector(11 downto 0) := (others => '0');
+    signal VGA_Fetch_Adr    : std_logic_vector(RAM_ADR_BUS_WIDTH-1 downto 0);
+    signal VGA_Fetch_Data   : std_logic_vector(BPP-1 downto 0);
+    signal VGA_Fetch_Count  : unsigned(RAM_ADR_BUS_WIDTH-1 downto 0) := to_unsigned(FRAME_WIDTH-1, RAM_ADR_BUS_WIDTH);
+    signal VGA_Clk_Div      : std_logic := '0';
     
 begin
 
@@ -146,17 +147,21 @@ begin
             o_GREEN         => VGA_GREEN
         );    
     
-    --VGA_Fetch_Adr <= std_logic_vector(to_unsigned(VGA_Fetch_Cntr, RAM_ADR_BUS_WIDTH-1));
-
-    FETCH_VGA_INPUT: process(OV7670_PCLK)
+    
+    FETCH_VGA_INPUT: process(OV7670_PCLK )
     begin
         if (rising_edge(OV7670_PCLK)) then
-            if (VGA_Fetch_Cntr = 639) then
-                VGA_Fetch_Cntr <= 0;
-            else
-                VGA_Fetch_Cntr <= VGA_Fetch_Adr_Cntr + 1;
+            -- 2 PCLK cycles per pixel write, as data is received as 2 bytes
+            VGA_Clk_Div <= not VGA_Clk_Div;
+        
+            if (VGA_Clk_Div = '0') then 
+                if (VGA_Fetch_Count = FRAME_WIDTH - 1) then
+                    VGA_Fetch_Count <= (others => '0');
+                else
+                    VGA_Fetch_Count <= VGA_Fetch_Count + 1;
+                end if;
+                VGA_Fetch_Adr <= std_logic_vector(VGA_Fetch_Count);
             end if;
-            VGA_Fetch_Adr <= std_logic_vector(to_unsigned(VGA_Fetch_Cntr, 10));
         end if;
     end process;
 end Behavioral;
