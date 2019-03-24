@@ -17,7 +17,8 @@
 -- Additional Comments:
 -- 
 ----------------------------------------------------------------------------------
-
+library WORK;
+use WORK.SYS_PARAM.ALL;
 
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
@@ -30,8 +31,8 @@ architecture Behavioral of TB_OV7670_Controller is
 
     component OV7670_Controller is
         generic(
-            System_Freq : natural range 0 to 400_000_000 := 100_000_000;   -- Global system clock frequency, 100MHz default
-            Bus_Freq    : natural range 0 to 400_000     := 100_000        -- SCL bus frequency, 100KHz default
+            System_Freq : natural range 0 to 400_000_000 := SYS_XTAL_FREQ;  -- Global system clock frequency, 100MHz default
+            Bus_Freq    : natural range 0 to 400_000     := SCCB_SCL_FREQ  -- SCL bus frequency, 100KHz default
         );
         port (
             -- Inputs

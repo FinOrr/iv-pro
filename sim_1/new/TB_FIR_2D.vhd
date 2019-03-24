@@ -52,13 +52,24 @@ architecture Behavioral of TB_FIR_2D is
         );
     end component;
 
+    type input_matrix is array (7 downto 0, 7 downto 0) of std_logic_vector(7 downto 0);
     signal Clk, reset : std_logic := '0';
     signal i_kernel : kernel := ( others => (others => x"01"));
     signal sf : std_logic_vector(3 downto 0) := x"3";             -- shift by 3 = divide by 8
+    signal input_mat : input_matrix := (others => (others => x"00"));
     signal input, output : std_logic_vector(7 downto 0) := x"00";
     
 begin
-
+    -- Input matrix has an average of 
+    input_mat <=   ((x"21", x"29", x"33", x"33", x"17", x"23", x"06", x"04"),               
+                    (x"07", x"18", x"06", x"33", x"27", x"09", x"2E", x"35"),
+                    (x"05", x"3A", x"16", x"15", x"08", x"33", x"20", x"04"),
+                    (x"07", x"3B", x"32", x"14", x"35", x"0B", x"18", x"32"),
+                    (x"0E", x"1F", x"22", x"22", x"22", x"38", x"23", x"27"),
+                    (x"22", x"0B", x"3F", x"11", x"36", x"2A", x"10", x"01"),
+                    (x"2E", x"23", x"2C", x"39", x"31", x"3E", x"39", x"38"),
+                    (x"3F", x"2D", x"1B", x"22", x"3B", x"1F", x"2F", x"35"));
+    
     clocking: process
     begin
         Clk <= not Clk;
@@ -69,28 +80,12 @@ begin
 
     Stimulus: process 
     begin
-        --  Bottom row of filter window
-        input <= x"1e";
-        wait for 10 ns;
-        input <= x"04";
-        wait for 10 ns;
-        input <= x"0a";
-        wait for 10 ns;
-        -- Middle row of filter window
-        input <= x"28";
-        wait for 10 ns;
-        input <= x"1e";
-        wait for 10 ns;
-        input <= x"06";
-        wait for 10 ns;
-        -- Top row
-        input <= x"1e";
-        wait for 10 ns;
-        input <= x"28";
-        wait for 10 ns;
-        input <= x"1e";
-        wait for 10 ns;
-        
+        for row in 0 to 7 loop
+            for col in 0 to 7 loop
+                Input <= input_mat(row, col);
+                wait for 10 ns;
+            end loop;
+        end loop;
     end process;
 
     uut: FIR_2D
