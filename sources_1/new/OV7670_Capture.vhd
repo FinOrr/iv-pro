@@ -11,18 +11,18 @@ entity OV7670_Capture is
         -- Outputs
         o_En_a        :   out std_logic;        
         o_Adr_a       :   out std_logic_vector(9 downto 0);        
-        o_Do          :   out std_logic_vector(11 downto 0)
+        o_Do          :   out std_logic_vector(7 downto 0)
     );
 end OV7670_Capture;
 
 architecture Behavioral of OV7670_Capture is
     
     -- Define the FSM states
-    type t_Capture_State is (IDLE, CACHE, WRITE);
+    type t_Capture_State is (IDLE, CHROMA, LUMA);
     signal State        :   t_Capture_State := IDLE;
     -- Internal signal declarations
     signal Addr         :   std_logic_vector(9 downto 0) := (others => '0');  -- RAM index to store pixel data
-    signal Byte_Cache   :   std_logic_vector(11 downto 0) := (others => '0');        -- 1px = 2B, so we need to store the last byte of input 
+    signal Byte_Cache   :   std_logic_vector(7 downto 0) := (others => '0');        -- 1px = 2B, so we need to store the last byte of input 
     -- I/O Buffers
     signal Pixel_Clk    :   std_logic;
     signal HRef         :   std_logic;
@@ -48,23 +48,23 @@ begin
                 -- State machine is idle when in blanking periods
                 when IDLE =>
                     if (HRef = '1') then
-                        State <= CACHE;
+                        State <= LUMA;
                     else
                         State <= IDLE;
                     end if;
                     
                 -- Receive byte 2 of 2 and write it to memory. If it's the last pixel then go idle, otherwise cache the next byte.
-                when CACHE =>
+                when CHROMA =>
                     if (HRef = '1') then
-                        State <= WRITE;
+                        State <= LUMA;
                     else
                         State <= IDLE;
                     end if;
                     
                 -- Byte 1 of 2 needs to be cached before writing RGB bits to memory
-                when WRITE =>
+                when LUMA =>
                     if (HRef = '1') then
-                        State <= CACHE;
+                        State <= CHROMA;
                     else
                         State <= IDLE;
                     end if;
@@ -82,14 +82,15 @@ begin
                 
                     when IDLE =>
                         En_a    <= '0';
+                    
+                    -- Ignore incoming pixel data for chroma components (U,V)    
+                    when CHROMA =>
+                        En_a    <= '0';     -- Enable PORT A
                         
-                    when WRITE =>
-                        En_a    <= '1';     -- Enable PORT A
-                        Byte_Cache(7 downto 0) <= Pixel_Data(7 downto 4) & Pixel_Data(3 downto 0);   -- Load G[3:0] AND B[3:0] into cache
-    
-                    when CACHE =>
-                        Byte_Cache(11 downto 8) <= Pixel_Data(3 downto 0);     -- Save R[3:0] into data cache
-                        En_a    <= '0';     -- Disable RAM PORT A
+                    -- Save luma component (Y)
+                    when LUMA =>
+                        Byte_Cache <= Pixel_Data;     -- Save R[3:0] into data cache
+                        En_a    <= '1';     -- Disable RAM PORT A
                         if (unsigned(Addr) = 639) then
                             Addr    <= (others => '0');
                         else
