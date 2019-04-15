@@ -9,10 +9,12 @@ package FILTER_TYPES is
 
 --    subtype pixel_value is std_logic_vector(11 downto 0);
 --    type tap_array is array (2 downto 0) of pixel_value;
+    CONSTANT KERNEL_WIDTH : natural := 3;
+    CONSTANT COEFF_WIDTH  : natural := 8;
+     
+    subtype coeff is signed(7 downto 0);    -- MUST BE (COEFF_WIDTH-1 downto 0)
+    type coeff_array is array (KERNEL_WIDTH-1 downto 0) of coeff;
     
-    subtype coeff is signed(7 downto 0);
-    type coeff_array is array (2 downto 0) of coeff;
-    
-    type kernel is array (2 downto 0) of coeff_array;        
+    type kernel is array (KERNEL_WIDTH-1 downto 0) of coeff_array;        
 
 end package;

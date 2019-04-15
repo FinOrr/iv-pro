@@ -52,9 +52,9 @@ begin
     Pixel_Clk <= Clk;
     
     -- Buffer inputs
-    VGA_Red     <= i_Pixel_Data(11 downto 8);
+    VGA_Red     <= i_Pixel_Data(7 downto 4);
     VGA_Green   <= i_Pixel_Data(7 downto 4);
-    VGA_Blue    <= i_Pixel_Data(3 downto 0);
+    VGA_Blue    <= i_Pixel_Data(7 downto 4);
     
     
     Horizontal_Counter: process (pixel_clk)

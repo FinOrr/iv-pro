@@ -33,43 +33,43 @@ entity FIR_2D is
         -- INPUTS
         Clk                 :   in  std_logic;
         i_Reset             :   in  std_logic;
-        i_Kernel            :   in  kernel;
+        i_Kernel            :   in  kernel;                         -- Input data
         i_Scaling_Factor    :   in  std_logic_vector(3 downto 0);
-        i_Data              :   in  std_logic_vector(7 downto 0);
+        i_Data              :   in  std_logic_vector(BPP-1 downto 0);
         -- OUTPUTS
-        o_Data              :   out std_logic_vector(7 downto 0)
+        o_Data              :   out std_logic_vector(BPP-1 downto 0)
     );
 end FIR_2D;
 
 architecture Behavioral of FIR_2D is
 
     signal Reset        : std_logic := '0';                                                 -- Reset input, buffered
-    signal Adr_Cntr     : natural range 0 to 642 := 0;                                      -- Counter to cycle through memory addresses    
-    signal Read_Adr     : std_logic_vector(9 downto 0) := (others => '0');                  -- Linebuffer read address
-    signal Write_Adr    : std_logic_vector(9 downto 0) := (others => '0');                  -- Memory write address
-        
+    signal Adr_Cntr     : natural range 0 to FRAME_WIDTH-1 := 0;                            -- Counter to cycle through memory addresses    
+    signal Read_Adr     : std_logic_vector(integer(ceil(log2(real(FRAME_WIDTH))))-1 downto 0) := (others => '0');                  -- Linebuffer read address
+    signal Write_Adr    : std_logic_vector(integer(ceil(log2(real(FRAME_WIDTH))))-1 downto 0) := (others => '0');                  -- Memory write address
+         
     -- FIR Signals
     signal Pixel_Ready      : natural range 0 to 8          := 0;
     signal Filter_Kernel    : kernel;                                                       -- Filter kernel is read from memory
-    signal Input_Pixel      : std_logic_vector(7 downto 0)  := (others => '0');             -- Pixel value, input
+    signal Input_Pixel      : std_logic_vector(BPP-1 downto 0)  := (others => '0');             -- Pixel value, input
  --   signal Output_Pixel     : std_logic_vector(7 downto 0)  := (others => '0');             -- New pixel value determined by the filter
-    signal FIR0_Do          : std_logic_vector(17 downto 0) := (others => '0');             -- Output of the first 1D FIR (bottom line)
-    signal FIR1_Do          : std_logic_vector(17 downto 0) := (others => '0');             -- Output of the second 1D FIR (middle line)
-    signal FIR2_Do          : std_logic_vector(17 downto 0) := (others => '0');             -- Output of the third 1D FIR (top line)
-    signal FIR_Sum          : std_logic_vector(17 downto 0) := (others => '0');             -- Summing point for 3 FIR filters
-    signal MAC              : std_logic_vector(17 downto 0) := (others => '0');             -- Sum of filters * scaling factor (scaling factor normally < 1)
+    signal FIR0_Do          : std_logic_vector((BPP+COEFF_WIDTH+2)-1 downto 0) := (others => '0');             -- Output of the first 1D FIR (bottom line)
+    signal FIR1_Do          : std_logic_vector((BPP+COEFF_WIDTH+2)-1 downto 0) := (others => '0');             -- Output of the second 1D FIR (middle line)
+    signal FIR2_Do          : std_logic_vector((BPP+COEFF_WIDTH+2)-1 downto 0) := (others => '0');             -- Output of the third 1D FIR (top line)
+    signal FIR_Sum          : std_logic_vector((BPP+COEFF_WIDTH+2)-1 downto 0) := (others => '0');             -- Summing point for 3 FIR filters
+    signal MAC              : std_logic_vector((BPP+COEFF_WIDTH+2)-1 downto 0) := (others => '0');             -- Sum of filters * scaling factor (scaling factor normally < 1)
     signal SF_Shift         : std_logic_vector(3 downto 0)  := (others => '0');
-    signal MSB_Loc          : natural range 0 to 18         := 0;
+    signal MSB_Loc          : natural range 0 to (BPP+COEFF_WIDTH+2) := 0;
 
     
     -- Linebuffer 0 signals
     signal LB0_En_A,  LB0_En_B          : std_logic := '1';                                 -- Linebuffer 0, write enable, read enable
-    signal LB0_Do                       : std_logic_vector(7 downto 0) := (others => '0');  -- Linebuffer 0 data out, read from RAM
+    signal LB0_Do                       : std_logic_vector(BPP-1 downto 0) := (others => '0');  -- Linebuffer 0 data out, read from RAM
 --    signal LB0_Adr_A, LB0_Adr_B         : std_logic_vector(8 downto 0) := (others => '0');  -- Linebuffer 0 write (A) and read (B) addresses
     
     -- Linebuffer 1 connections
     signal LB1_En_A,  LB1_En_B          : std_logic := '0';                                 -- Write enable, read enable
-    signal LB1_Do                       : std_logic_vector(7 downto 0) := (others => '0');  -- Data in, data out
+    signal LB1_Do                       : std_logic_vector(BPP-1 downto 0) := (others => '0');  -- Data in, data out
 --    signal LB1_Adr_A, LB1_Adr_B         : std_logic_vector(8 downto 0) := (others => '0');  -- Write address, read address
         
     -- 2D Filter uses 3 x 1D filters to create a 3x3 window
@@ -78,26 +78,29 @@ architecture Behavioral of FIR_2D is
             -- Inputs
             Clk     :   in  std_logic;
             i_Reset :   in  std_logic;
-            i_Data  :   in  std_logic_vector(7 downto 0);
+            i_Data  :   in  std_logic_vector(BPP-1 downto 0);
             i_Coeff :   in  coeff_array;
             -- Outputs
-            o_Data  :   out std_logic_vector(17 downto 0)    -- Input(n bits) * filter(8 bits) + pipelines (2 bits) = n + 10 bit output bus
+            o_Data  :   out std_logic_vector((BPP+COEFF_WIDTH+2)-1 downto 0)    -- Input(n bits) * filter(8 bits) + pipelines (2 bits) = n + 10 bit output bus
         );
     end component;
     
     component RAM_DP is
+        generic (
+            RAM_WIDTH : natural;
+            RAM_DEPTH : natural
+        );
         port (
             -- Inputs 
-            Clk_a   : in std_logic;                         -- RAM write clock
-            Clk_b   : in std_logic;                         -- RAM read clock
+            Clk     : in std_logic;                         -- RAM write clock
             Reset   : in std_logic;                         -- Reset to clear output
         -- Port A (Write)
             En_a    : in std_logic;                         -- Port A Enable
-            Adr_a   : in std_logic_vector(RAM_ADR_BUS_WIDTH-1 downto 0);      -- Port A (Write) Address
+            Adr_a   : in std_logic_vector(LB_ADR_BUS_WIDTH-1 downto 0);      -- Port A (Write) Address
             Di      : in std_logic_vector(BPP-1 downto 0);      -- Port A (Write) Data In
         -- Port B (Read)
             En_b    : in std_logic;                         -- Port B Enable
-            Adr_b   : in std_logic_vector(RAM_ADR_BUS_WIDTH-1 downto 0);      -- Port B (Read) Address
+            Adr_b   : in std_logic_vector(LB_ADR_BUS_WIDTH-1 downto 0);      -- Port B (Read) Address
             Do      : out std_logic_vector(BPP-1 downto 0)      -- Port B (Read) Data Out
         );
     end component;
@@ -111,10 +114,13 @@ begin
     
     
     Line_Buffer0: RAM_DP
+        generic map (
+            RAM_WIDTH => BPP-1,
+            RAM_DEPTH => FRAME_WIDTH
+        )
         port map (
             -- Inputs 
-            Clk_a   => Clk,
-            Clk_b   => Clk,
+            Clk     => Clk,
             Reset   => Reset,
             -- Port A (Write)
             En_a    => LB0_En_A,
@@ -127,10 +133,13 @@ begin
         );
         
     Line_Buffer1: RAM_DP
+        generic map (
+            RAM_WIDTH => BPP-1,
+            RAM_DEPTH => FRAME_WIDTH
+        )
         port map (
             -- Inputs 
-            Clk_a   => Clk,
-            Clk_b   => Clk,
+            Clk     => Clk,
             Reset   => Reset,
             -- Port A (Write)
             En_a    => LB1_En_A,

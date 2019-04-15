@@ -10,12 +10,13 @@ package SYS_PARAM is
 -- Camera Parameters
     constant SCCB_SCL_FREQ   : natural := 100_000; -- Serial clock frequency (Hz) for camera communications bus
     constant CAMERA_WRITE_ID : std_logic_vector(7 downto 0) := x"42"; -- Camera's I2C write ID, can be found in datasheet - 0x42 for OV7670
-    constant BPP  : natural := 12;  -- Number of bits per pixel
+    constant BPP  : natural := 8;  -- Number of bits per pixel
     
--- VGA Parameters --
+-- VGA Parameters -- 
     -- 640x480 @ 60Hz --
-    constant FRAME_WIDTH  : natural := 640; -- Active region width (pixels)
-    constant FRAME_HEIGHT : natural := 480; -- Active region height (pixels)
+    constant FRAME_WIDTH  : natural := 320; -- Active region width (pixels)
+    constant FRAME_HEIGHT : natural := 240; -- Active region height (pixels)
+    constant FRAME_PIXELS : natural := FRAME_WIDTH * FRAME_HEIGHT;
     
     constant VGA_PXL_CLK_FREQ : natural := 25_000_000; -- Pixel clock frequency, VESA requirements recommend 25.175MHz
     
@@ -32,8 +33,9 @@ package SYS_PARAM is
     constant H_POL : std_logic := '0';  -- Polarity of H Sync pulse (0 = -, 1 = +)
     constant V_POL : std_logic := '0';  -- Polarity of V sync pulse (0 = -, 1 = +)
        
+    signal IMPL_FILTER_CNT : natural := 2;
    
 -- Linebuffer RAM Parameters
-    constant RAM_ADR_BUS_WIDTH  : natural := integer(ceil(log2(real(FRAME_WIDTH - 1))));
+    constant LB_ADR_BUS_WIDTH   : natural := integer(ceil(log2(real(FRAME_WIDTH - 1))));
     
 end package;

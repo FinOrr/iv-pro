@@ -3,7 +3,7 @@ library WORK;
 use WORK.SYS_PARAM.ALL;
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
-
+ 
 entity OV7670_Controller is
     generic(
         System_Freq : natural range 0 to 400_000_000 := SYS_XTAL_FREQ;  -- Global system clock frequency, 100MHz default
