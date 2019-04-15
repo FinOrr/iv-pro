@@ -54,51 +54,20 @@ end Top_Level;
 
 architecture Behavioral of Top_Level is
     
-    component UART_Receiver is
-        generic (
-            BAUD_RATE : natural := 115_200
-        );
-        port (
-            Clk         : in std_logic;                         -- System clock
-            i_RX        : in std_logic;                         -- Serial input port
-            o_RX_Finish : out std_logic;                        -- Signal driven high when finished recieving data
-            o_RX_Byte   : out std_logic_vector(7 downto 0)      -- Byte output
-        );
-    end component;
-    
     component UART_Controller is
         port (
             -- Inputs
             Clk             : in std_logic;                         -- System clock
             i_Reset         : in std_logic;                         -- Global reset input
-            i_Send          : in std_logic;                         -- External trigger to start transmitting
-            i_TX_Active     : in std_logic;                         -- High while transmitting
-            i_TX_Finish     : in std_logic;                         -- High when TX byte has been sent
-            i_RX_Finish     : in std_logic;                         -- High when RX byte is received
-            i_RX_Byte       : in std_logic_vector(7 downto 0);      -- Byte received
-            i_Pixel_Data    : in std_logic_vector(7 downto 0);      -- Pixel value to be transmitted 
+            i_Send          : in std_logic;                         -- Trigger to start sending frame buffer
+            i_RX            : in std_logic;
+            i_FB_Byte       : in std_logic_vector(7 downto 0);
             -- Outputs
-            o_Pixel_Data    : out std_logic_vector(7 downto 0);     -- Byte from UART RX
-            o_Pixel_Adr     : out std_logic_vector(LB_ADR_BUS_WIDTH - 1 downto 0); -- Address of pixel value in frame buffer
-            o_Write_En      : out std_logic;                        -- Enable the frame buffer to write the data value
-            o_Read_En       : out std_logic;                        -- Enable the read port on the frame buffer
-            o_TX_Ready      : out std_logic;                        -- Pulse high to send TX_Byte
-            o_TX_Byte       : out std_logic_vector(7 downto 0)      -- Data byte to be transmitted  
-        );
-    end component;
-    
-    
-    component UART_Transmitter is
-        generic (
-            BAUD_RATE : natural := 115_200
-        );
-        port (
-            Clk         : in std_logic;                     -- System clock input
-            i_TX_Ready  : in std_logic;                     -- High when data has been loaded to TX_Byte
-            i_TX_Byte   : in std_logic_vector(7 downto 0);  -- Byte to be transmitted serially
-            o_TX_Active : out std_logic;                    -- Active infers tri-state buffer, as communications only use 1 wire
-            o_TX_Serial : out std_logic;                    -- Serial data output port
-            o_TX_Finish : out std_logic                     -- Signal that byte has been transmitted
+            o_Adr           : out std_logic_vector(LB_ADR_BUS_WIDTH -1 downto 0); -- Address of pixel value in frame buffer
+            o_Write_En      : out std_logic;                        -- Enable the frame buffer to write the data value      
+            o_FB_Byte       : out std_logic_vector(7 downto 0);
+            o_Threshold     : out std_logic_vector(7 downto 0);     -- Threshold value for threshold function
+            o_TX            : out std_logic                         -- Bit to be transmitted 
         );
     end component;
     
@@ -114,24 +83,14 @@ architecture Behavioral of Top_Level is
         );
     end component;
     
-    -- BRAM components
-    component RAM_DP is
-        generic (
-            RAM_WIDTH : natural;    -- Number of bits in RAM word
-            RAM_DEPTH : natural     -- Number of unique RAM addresses
-        );
-        port(
-        -- Inputs 
-            Reset   : in std_logic;                     -- Reset to clear output
-            Clk     : in std_logic;                     -- RAM write port clock
-        -- Port A (Write)
-            En_a    : in std_logic;                     -- Port A Enable
-            Adr_a   : in std_logic_vector(integer(ceil(log2(real(RAM_DEPTH))))-1 downto 0); -- Port A (Write) Address
-            Di      : in std_logic_vector(RAM_WIDTH -1 downto 0); -- Port A (Write) Data In
-        -- Port B (Read)
-            En_b    : in std_logic;                     -- Port B Enable
-            Adr_b   : in std_logic_vector(integer(ceil(log2(real(RAM_DEPTH))))-1 downto 0); -- Port B (Read) Address
-            Do      : out std_logic_vector(RAM_WIDTH -1 downto 0) -- Port B (Read) Data Out
+    component Frame_Buffer is
+        port (
+            Clk         : in std_logic;
+            Write_En    : in std_logic;
+            En          : in std_logic;
+            Adr         : in std_logic_vector(integer(ceil(log2(real((FRAME_PIXELS)))))-1 downto 0);
+            Di          : in std_logic_vector(BPP-1 downto 0);
+            Do          : out std_logic_vector(BPP-1 downto 0)
         );
     end component;
     
@@ -191,37 +150,20 @@ architecture Behavioral of Top_Level is
     signal Read_Filter_En   : std_logic := '0';
     signal Read_Filter_Adr  : std_logic_vector(5 downto 0) := (others => '0');
     signal Read_Filter_Coef : std_logic_vector(7 downto 0) := (others => '0');
-    
-    -- UART Controller Signals
-      -- [Input]
-    signal UART_TX_Active   : std_logic := '0';
-    signal UART_TX_Finish   : std_logic := '0';
-    signal UART_RX_Finish   : std_logic := '0';
-    signal UART_RX_Byte     : std_logic_vector(7 downto 0) := (others => '0');
-      -- [Output]
-    signal UART_TX_Ready    : std_logic := '0';
-    signal UART_TX_Byte     : std_logic_vector(7 downto 0) := (others => '0');
-    signal UART_Pixel_Out   : std_logic_vector(7 downto 0) := (others => '0');
-    signal UART_Pixel_In    : std_logic_vector(7 downto 0) := (others => '0');
-    signal UART_Pixel_Adr   : std_logic_vector(LB_ADR_BUS_WIDTH - 1 downto 0) := (others => '0');
-    signal UART_WE          : std_logic := '0';
-    signal UART_RE          : std_logic := '0';
-    signal UART_Send        : std_logic := '0';
 
     -- Input Frame Buffer Signals
-    signal Input_FB_Re      : std_logic := '0';
+    signal Input_FB_We      : std_logic := '0';
     signal Input_FB_Adr     : std_logic_vector(LB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
-    signal Input_FB_Do      : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal Input_FB_Di      : std_logic_vector(7 downto 0) := (others => '0');
+    signal UART_Send        : std_logic := '0';
+    signal Output_FB_Data   : std_logic_vector(7 downto 0) := (others => '0');
+    signal Threshold        : std_logic_vector(7 downto 0) := (others => '0');
     
 begin
     
     OV7670_RESET <= not RESET;      -- Reset active low, normal mode high
     OV7670_PWDN  <= '0';            -- Power down device 
     OV7670_XCLK  <= Clk_25;
-    
-    LED(1) <= UART_Send;
-    LED(0) <= UART_TX_Active;
-    UART_Send <= TX_Switch;
 
     -- 25MHz Clock Gen
     Clock_Gen_25MHz: Signal_Generator
@@ -260,88 +202,22 @@ begin
             o_PIXEL_DATA    => VGA_Fetch_Data
         );
         
-    Input_Frame_Buffer: RAM_DP
-        generic map (
-            RAM_WIDTH => 8,              -- Number of bits in RAM word
-            RAM_DEPTH => FRAME_PIXELS   -- Number of unique RAM addresses
-        )
-        port map (
-        -- Inputs 
-            Reset   => RESET,           -- Reset to clear output
-            Clk     => Clk_100,         -- RAM clock
-        -- Port A (Write)
-            En_a    => UART_We,         -- Port A Enable
-            Adr_a   => UART_Pixel_Adr,  -- Port A (Write) Address
-            Di      => UART_Pixel_Out,  -- Port A (Write) Data In
-        -- Port B (Read)
-            En_b    => UART_Re,         -- Port B Enable
-            Adr_b   => UART_Pixel_Adr,  -- Port B (Read) Address
-            Do      => UART_Pixel_In    -- Port B (Read) Data Out
-        );
-        
---    Output_Frame_Buffer: RAM_DP
---        generic map (
---            RAM_WIDTH => 8,              -- Number of bits in RAM word
---            RAM_DEPTH => FRAME_PIXELS   -- Number of unique RAM addresses
---        )
---        port map (
---        -- Inputs 
---            Reset   => RESET,           -- Reset to clear output
---            Clk_a   => Clk_100,         -- RAM write port clock
---            Clk_b   => Clk_100,         -- RAM read port clock
---        -- Port A (Write)
---            En_a    => UART_We,         -- Port A Enable
---            Adr_a   => UART_Pixel_Adr,  -- Port A (Write) Address
---            Di      => UART_Pixel_Out,  -- Port A (Write) Data In
---        -- Port B (Read)
---            En_b    => Input_FB_Re,     -- Port B Enable
---            Adr_b   => Input_FB_Adr,     -- Port B (Read) Address
---            Do      => Input_FB_Do      -- Port B (Read) Data Out
---        );
-        
     
-    UART_OUT: UART_Transmitter
-        generic  map(
-            BAUD_RATE => 115_200
-        )
-        port map (
-            Clk         => Clk_100,
-            i_TX_Ready  => UART_TX_Ready,
-            i_TX_Byte   => UART_TX_Byte,
-            o_TX_Active => UART_TX_Active,
-            o_TX_Serial => UART_TX,
-            o_TX_Finish => UART_TX_Finish
-        );
-        
-    UART_IN: UART_Receiver
-        generic map (
-            BAUD_RATE => 115_200
-        )
-        port map (
-            Clk         => Clk_100,
-            i_RX        => UART_RX,
-            o_RX_Finish => UART_RX_Finish,
-            o_RX_Byte   => UART_RX_Byte
-        );
-    
-    UART_CTRL: UART_Controller
+    UART_Control: UART_Controller
         port map (
             -- Inputs
-            Clk             =>  Clk_100,        -- System clock
-            i_Reset         =>  RESET,          -- Global reset input
-            i_Send          =>  UART_Send,      -- External trigger to start transmitting
-            i_TX_Active     =>  UART_TX_Active, -- High while transmitting
-            i_TX_Finish     =>  UART_TX_Finish, -- High when TX byte has been sent
-            i_RX_Finish     =>  UART_RX_Finish, -- High when RX byte is received
-            i_RX_Byte       =>  UART_RX_Byte,   -- Byte received
-            i_Pixel_Data    =>  UART_Pixel_In,  -- Pixel value to be transmitted 
-            -- Outputs      => 
-            o_Pixel_Data    =>  UART_Pixel_Out, -- Byte from UART RX
-            o_Pixel_Adr     =>  UART_Pixel_Adr, -- Address of pixel value in frame buffer
-            o_Write_En      =>  UART_We,        -- Enable the frame buffer to write the data value
-            o_Read_En       =>  UART_Re,        -- Enable the read port on the frame buffer
-            o_TX_Ready      =>  UART_TX_Ready,  -- Pulse high to send TX_Byte
-            o_TX_Byte       =>  UART_TX_Byte    -- Data byte to be transmitted  
+            Clk             => Clk_100,
+            i_Reset         => RESET,
+            i_Send          => UART_Send,
+            i_RX            => UART_RX,
+            i_FB_Byte       => Output_FB_Data,
+            -- Outputs      
+            o_Adr           => Input_FB_Adr,
+            o_Coef_Adr      => Read_Filter_Adr,
+            o_Write_En      => Input_FB_We,
+            o_FB_Byte       => Input_FB_Di,
+            o_Threshold     => Threshold,
+            o_TX            => UART_TX 
         );
     
     -- VGA Controller

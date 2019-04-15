@@ -21,7 +21,7 @@ end VGA_Controller;
 
 architecture Behavioral of VGA_Controller is
  
-    -- Pixel clock, in this case 108 MHz
+    -- Pixel clock, in this case 100 MHz
     signal Pixel_Clk : std_logic;
     
     -- The active signal is used to signal the active region of the screen (when not blank)

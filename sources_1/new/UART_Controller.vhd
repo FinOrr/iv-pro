@@ -9,42 +9,103 @@ entity UART_Controller is
         -- Inputs
         Clk             : in std_logic;                         -- System clock
         i_Reset         : in std_logic;                         -- Global reset input
-        i_TX_Active     : in std_logic;                         -- High while transmitting
-        i_TX_Byte       : in std_logic_vector(7 downto 0);      -- Pixel value to be transmitted 
-        i_TX_Finish     : in std_logic;                         -- High when TX byte has been sent
-        i_TX_Ready      : in std_logic;                         -- External trigger to start transmitting
-        i_RX_Byte       : in std_logic_vector(7 downto 0);      -- Byte received
-        i_RX_Finish     : in std_logic;                         -- High when RX byte is received
+        i_Send          : in std_logic;                         -- Trigger to start sending frame buffer
+        i_RX            : in std_logic;
+        i_FB_Byte       : in std_logic_vector(7 downto 0);
         -- Outputs
+        o_Contrast_En   : out std_logic;
+        o_Threshold_En  : out std_logic;
+        o_Median_En     : out std_logic;
+        o_Coef_En       : out std_logic;
+        o_Coef_Adr      : out std_logic_vector(7 downto 0);
         o_Adr           : out std_logic_vector(LB_ADR_BUS_WIDTH -1 downto 0); -- Address of pixel value in frame buffer
         o_Write_En      : out std_logic;                        -- Enable the frame buffer to write the data value
-        o_Read_En       : out std_logic;                        -- Enable the read port on the frame buffer        
-        o_TX_Ready      : out std_logic;                        -- Pulse high to send TX_Byte
-        o_TX_Byte       : out std_logic_vector(7 downto 0);     -- Data byte to be transmitted  
-        o_RX_Byte       : out std_logic_vector(7 downto 0);     -- Byte from UART RX
-        o_Threshold     : out std_logic_vector(7 downto 0)      -- Threshold value for threshold function
+        o_Read_En       : out std_logic;                        -- Enable the read port on the frame buffer       
+        o_FB_Byte       : out std_logic_vector(7 downto 0);
+        o_Threshold     : out std_logic_vector(7 downto 0);     -- Threshold value for threshold function
+        o_TX            : out std_logic                         -- Bit to be transmitted 
     );
 end UART_Controller;
 
 architecture Behavioral of UART_CONTROLLER is
 
+    component UART_Receiver
+        generic (
+            BAUD_RATE : natural := 115_200
+        );
+        port (
+            Clk         : in std_logic;                         -- System clock
+            i_RX        : in std_logic;                         -- Serial input port
+            o_RX_Finish : out std_logic;                        -- Signal driven high when finished recieving data
+            o_RX_Byte   : out std_logic_vector(7 downto 0)      -- Byte output
+        );
+    end component;
+    
+    component UART_Transmitter
+        generic (
+            BAUD_RATE : natural := 115_200
+        );
+        port (
+            Clk         : in std_logic;                     -- System clock input
+            i_TX_Ready  : in std_logic;                     -- High when data has been loaded to TX_Byte
+            i_TX_Byte   : in std_logic_vector(7 downto 0);  -- Byte to be transmitted serially
+            o_TX_Active : out std_logic;                    -- Active infers tri-state buffer, as communications only use 1 wire
+            o_TX_Serial : out std_logic;                    -- Serial data output port
+            o_TX_Finish : out std_logic                     -- Signal that byte has been transmitted
+        );
+    end component;
+    signal Coef_Adr     : std_logic_vector(7 downto 0) := (others => '0');
+    signal Coef_En      : std_logic := '0';
     signal Adr          : unsigned(LB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');     -- RAM address
     signal Byte_Count   : natural range 0 to FRAME_PIXELS := 0;                         -- Number of received bytes
     signal CMD_Sent     : std_logic := '0';                                             -- filter configured flag
-
+    
+    signal RX_Finish    : std_logic := '0';
+    signal RX_Byte      : std_logic_vector(7 downto 0) := (others => '0');
+    
+    signal TX_Ready     : std_logic := '0';
+    signal TX_Active    : std_logic := '0';
+    signal TX_Serial    : std_logic := '0';
+    signal TX_Finish    : std_logic := '0';
+    signal TX_Byte      : std_logic_vector(7 downto 0) := (others => '0');
+    
 begin 
 
-    o_Adr <= std_logic_vector(unsigned(to_integer(Byte_Count), LB_ADR_BUS_WIDTH));
+    o_Adr <= std_logic_vector(to_unsigned((Byte_Count), LB_ADR_BUS_WIDTH));
+    o_Coef_Adr <= Coef_Adr;
+    UART_RX: UART_Receiver
+        generic map (
+            BAUD_RATE => 115200
+        )
+        port map (
+            Clk         => Clk,
+            i_RX        => i_RX,
+            o_RX_Finish => RX_Finish,
+            o_RX_Byte   => RX_Byte
+        );
+        
+    UART_TX: UART_Transmitter
+        generic map (
+            BAUD_RATE => 115_200
+        )
+        port map (
+            Clk         => Clk,
+            i_TX_Ready  => TX_Ready,
+            i_TX_Byte   => TX_Byte,
+            o_TX_Active => TX_Active,
+            o_TX_Serial => o_TX,
+            o_TX_Finish => TX_Finish
+        );
     
     TX_Proc: process(Clk)
     begin
         if (rising_edge(Clk)) then
-            if (i_TX_Active = '0') then
-                if (i_RX_Finish = '1') then     -- If transmitter is sent
-                    o_TX_Byte <= i_TX_Byte;     -- Load pixel value to transmitter
-                    o_TX_Ready <= '1';          -- Stop transmitter
+            if (TX_Active = '0') then
+                if (RX_Finish = '1') then     -- If transmitter is sent
+                    TX_Byte <= i_FB_Byte;     -- Load pixel value to transmitter
+                    TX_Ready <= '1';          -- Stop transmitter
                 else
-                    o_TX_Ready <= '0';          -- Wait for byte to be sent before loading a new one
+                    TX_Ready <= '0';          -- Wait for byte to be sent before loading a new one
                end if; -- RX Finish check
             end if; -- TX Active check
         end if; -- clock edge check
@@ -53,24 +114,46 @@ begin
     RX_Proc: process(Clk)
     begin
         if (rising_edge(Clk)) then
-            if (i_TX_Active = '0') then         -- If transmitter if inactive
-                if (i_RX_Finish = '1') then     -- If byte has been received
+            if (TX_Active = '0') then         -- If transmitter if inactive
+                if (RX_Finish = '1') then     -- If byte has been received
                     if (CMD_Sent = '0') then    -- First command bytes haven't been received
+                        Byte_Count <= Byte_Count + 1;
                         case Byte_Count is
-                            when 0 =>
-                                -- Filter type   
-                                Byte_Count <= Byte_Count + 1;
-                            when 1 =>
-                                -- Filter address (RAM)
+                            when 0 =>                   -- Filter type CMD byte
+                                if (RX_Byte = x"00") then   -- WINDOW OPERATION
+                                    o_Contrast_En <= '0';       -- Disable Contrast stretching filter
+                                    o_Threshold_En <= '0';      -- Disable thresholding filter
+                                    o_Median_En <= '0';         -- Disable median filter
+                                elsif (RX_Byte = x"01") then -- CONTRAST STRETCH OPERATION
+                                    o_Contrast_En <= '1';       -- Enable constrast stretching filter
+                                    o_Threshold_En <= '0';      -- Disable thresholding filter
+                                    o_Median_En <= '0';         -- Disable median filter
+                                elsif (RX_Byte = x"02") then -- THRESHOLDING OPERATION
+                                    o_Contrast_En <= '0';       -- Disable contrast stretching filter
+                                    o_Threshold_En <= '1';      -- Enable thresholding filter
+                                    o_Median_En <= '0';         -- Disable median filter
+                                elsif (RX_Byte = x"03") then -- MEDIAN FILTER
+                                    o_Contrast_En <= '0';       -- Disable constrast stretching
+                                    o_Threshold_En <= '0';      -- Disbale thresholding
+                                    o_Median_En <= '1';         -- Enable median filtering
+                                else                        -- In case of error, WINDOW OPERATION by default
+                                    o_Contrast_En <= '0';       -- Disable Contrast stretching filter
+                                    o_Threshold_En <= '0';      -- Disable thresholding filter
+                                    o_Median_En <= '0';         -- Disable median filter
+                                end if;
+                            when 1 =>       -- Filter ROM adr
+                                o_Coef_Adr <= RX_Byte;
+                                o_Coef_En  <= '1';
                                 Byte_Count <= Byte_Count + 1;
                             when 2 =>
-                                o_Threshold <= i_RX_Byte;
+                                o_Threshold <= RX_Byte;
+                                o_Coef_En <= '0';
                                 CMD_Sent <= '1';
                                 Byte_Count <= 0;
                             when others =>
                         end case;
                     else                            -- Receiving data byte
-                        o_RX_Byte <= i_RX_Byte;     -- Load the received byte to frame buffer Data In bus
+                        o_FB_Byte <= RX_Byte;     -- Load the received byte to frame buffer Data In bus
                         o_Write_En <= '1';          -- Enable writing to input frame buffer                       
                         if (Byte_Count = FRAME_PIXELS - 1) then     -- check if last pixel value in frame buffer
                             Byte_Count <= 0;                        -- reset byte counter
