@@ -47,18 +47,19 @@ architecture Behavioral of TB_FIR_2D is
             i_Kernel            :   in  kernel;
             i_Scaling_Factor    :   in  std_logic_vector(3 downto 0);
             i_Data              :   in  std_logic_vector(7 downto 0);
+            i_Median_En         :   in  std_logic;
             -- OUTPUTS
             o_Data              :   out std_logic_vector(7 downto 0)
         );
     end component;
 
     type input_matrix is array (7 downto 0, 7 downto 0) of std_logic_vector(7 downto 0);
-    signal Clk, reset : std_logic := '0';
-    signal i_kernel : kernel := ( others => (others => x"01"));
-    signal sf : std_logic_vector(3 downto 0) := x"3";             -- shift by 3 = divide by 8
-    signal input_mat : input_matrix := (others => (others => x"00"));
-    signal input, output : std_logic_vector(7 downto 0) := x"00";
-    
+    signal Clk, reset       : std_logic                     := '0';
+    signal i_kernel         : kernel                        := ( others => (others => x"01"));
+    signal sf               : std_logic_vector(3 downto 0)  := x"3";             -- shift by 3 = divide by 8
+    signal input_mat        : input_matrix                  := (others => (others => x"00"));
+    signal input, output    : std_logic_vector(7 downto 0)  := x"00";
+    signal median           : std_logic                     := '0';
 begin
     -- Input matrix has an average of 
     input_mat <=   ((x"21", x"29", x"33", x"33", x"17", x"23", x"06", x"04"),               
@@ -80,6 +81,7 @@ begin
 
     Stimulus: process 
     begin
+        median <= '1';
         for row in 0 to 7 loop
             for col in 0 to 7 loop
                 Input <= input_mat(row, col);
@@ -90,12 +92,13 @@ begin
 
     uut: FIR_2D
         port map(
-            Clk => Clk,
-            i_Reset => Reset,
-            i_Kernel => i_Kernel,
+            Clk         => Clk,
+            i_Reset     => Reset,
+            i_Kernel    => i_Kernel,
             i_Scaling_Factor => sf,
-            i_Data  => Input,
-            o_Data => Output
+            i_Data      => Input,
+            i_Median_En => median,
+            o_Data      => Output
         );
         
     
