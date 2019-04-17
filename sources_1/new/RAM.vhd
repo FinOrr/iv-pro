@@ -25,39 +25,35 @@ use IEEE.MATH_REAL.ALL;
 
 
 entity RAM_DP is
-    generic (
-        RAM_WIDTH : natural;    -- Number of bits in RAM word
-        RAM_DEPTH : natural     -- Number of unique RAM addresses
-    );
     port(
     -- Inputs 
         Reset   : in std_logic;                     -- Reset to clear output
-        Clk     : in std_logic;                     -- RAM write port clock
+        Clk_a   : in std_logic;                     -- RAM write port clock
+        Clk_b   : in std_logic;                     -- RAM read port clock
     -- Port A (Write)
         En_a    : in std_logic;                     -- Port A Enable
-        Adr_a   : in std_logic_vector(integer(ceil(log2(real(RAM_DEPTH))))-1 downto 0); -- Port A (Write) Address
-        Di      : in std_logic_vector(RAM_WIDTH -1 downto 0); -- Port A (Write) Data In
+        Adr_a   : in std_logic_vector(integer(ceil(log2(real(FRAME_WIDTH))))-1 downto 0); -- Port A (Write) Address
+        Di      : in std_logic_vector(BPP -1 downto 0); -- Port A (Write) Data In
     -- Port B (Read)
         En_b    : in std_logic;                     -- Port B Enable
-        Adr_b   : in std_logic_vector(integer(ceil(log2(real(RAM_DEPTH))))-1 downto 0); -- Port B (Read) Address
-        Do      : out std_logic_vector(RAM_WIDTH -1 downto 0) -- Port B (Read) Data Out
+        Adr_b   : in std_logic_vector(integer(ceil(log2(real(FRAME_WIDTH))))-1 downto 0); -- Port B (Read) Address
+        Do      : out std_logic_vector(BPP -1 downto 0) -- Port B (Read) Data Out
     );
 end RAM_DP;
  
 architecture Behavioral of RAM_DP is
 
     -- RAM Declaration
-    type RAM_LB is array (RAM_DEPTH-1 downto 0) of std_logic_vector(RAM_WIDTH-1 downto 0);  -- Currently testing 8 bits per pixel, 480p
+    type RAM_LB is array (FRAME_WIDTH-1 downto 0) of std_logic_vector(BPP-1 downto 0);  -- Currently testing 8 bits per pixel, 480p
     signal RAM : RAM_LB:= (others => (others => '0'));
     
     attribute ram_style: string;
     attribute ram_style of RAM : signal is "block";
     
 begin
-
-    Write_Control: process (Clk)
+    Write_Control: process (Clk_a)
     begin
-        if (rising_edge(Clk)) then                          -- Sync on rising edge
+        if (rising_edge(Clk_a)) then                          -- Sync on rising edge
             if (En_a = '1') then                            -- Check PortA Enabled
                 RAM(to_integer(unsigned(Adr_a))) <= Di; -- Store Data In at the address index
             end if;
@@ -68,9 +64,9 @@ begin
         end if;
     end process;
     
-    Read_Control: process(Clk)
+    Read_Control: process(Clk_b)
     begin
-        if (rising_edge(Clk)) then
+        if (rising_edge(Clk_b)) then
             if (En_b = '1') then                            -- Check PortB enabled
                 Do <= RAM(to_integer(unsigned(Adr_b)));     -- Output the data from ram index Adr_b
             else
@@ -78,5 +74,4 @@ begin
             end if;
         end if;
     end process;
-    
 end Behavioral;
