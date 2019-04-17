@@ -36,6 +36,7 @@ entity FIR_2D is
         i_Kernel            :   in  kernel;                         -- Input data
         i_Scaling_Factor    :   in  std_logic_vector(3 downto 0);
         i_Data              :   in  std_logic_vector(BPP-1 downto 0);
+        i_Median_En         :   in  std_logic;
         -- OUTPUTS
         o_Data              :   out std_logic_vector(BPP-1 downto 0)
     );
@@ -61,7 +62,14 @@ architecture Behavioral of FIR_2D is
     signal SF_Shift         : std_logic_vector(3 downto 0)  := (others => '0');
     signal MSB_Loc          : natural range 0 to (BPP+COEFF_WIDTH+2) := 0;
 
-    
+    -- Median sort signals
+    signal Median_Pipe0 : Median_Array  := (others => (others => '0'));     -- Unsorted, weighted array of pixel values
+    signal Median_Pipe1 : Median_Array  := (others => (others => '0'));     -- First pass bitonic sort (2 value packets)
+    signal Median_Pipe2 : Median_Array  := (others => (others => '0'));     -- Second pass bitonic sort (4 value packets)
+    signal Median_Pipe3 : Median_Array  := (others => (others => '0'));     -- Third pass bitonic sort (8 value packets) 
+    signal Median_Pipe4 : Median_Array  := (others => (others => '0'));     -- Final pass bitonic sort (ascending order, [0] = lowest val, [15] = highest val, [7] = median value)
+    signal Median_Pipe5 : Median_Array  := (others => (others => '0'));     -- Final pass bitonic sort (ascending order, [0] = lowest val, [15] = highest val, [7] = median value)
+       
     -- Linebuffer 0 signals
     signal LB0_En_A,  LB0_En_B          : std_logic := '1';                                 -- Linebuffer 0, write enable, read enable
     signal LB0_Do                       : std_logic_vector(BPP-1 downto 0) := (others => '0');  -- Linebuffer 0 data out, read from RAM
@@ -86,13 +94,10 @@ architecture Behavioral of FIR_2D is
     end component;
     
     component RAM_DP is
-        generic (
-            RAM_WIDTH : natural;
-            RAM_DEPTH : natural
-        );
         port (
             -- Inputs 
-            Clk     : in std_logic;                         -- RAM write clock
+            Clk_a   : in std_logic;                         -- RAM write clock
+            Clk_b   : in std_logic;                         -- RAM read clock
             Reset   : in std_logic;                         -- Reset to clear output
         -- Port A (Write)
             En_a    : in std_logic;                         -- Port A Enable
@@ -114,13 +119,10 @@ begin
     
     
     Line_Buffer0: RAM_DP
-        generic map (
-            RAM_WIDTH => BPP-1,
-            RAM_DEPTH => FRAME_WIDTH
-        )
         port map (
             -- Inputs 
-            Clk     => Clk,
+            Clk_a   => Clk,
+            Clk_b   => Clk,
             Reset   => Reset,
             -- Port A (Write)
             En_a    => LB0_En_A,
@@ -133,13 +135,10 @@ begin
         );
         
     Line_Buffer1: RAM_DP
-        generic map (
-            RAM_WIDTH => BPP-1,
-            RAM_DEPTH => FRAME_WIDTH
-        )
         port map (
             -- Inputs 
-            Clk     => Clk,
+            Clk_a   => Clk,
+            Clk_b   => Clk,
             Reset   => Reset,
             -- Port A (Write)
             En_a    => LB1_En_A,
@@ -185,15 +184,19 @@ begin
     Write_Address_Counter: process(Clk)
     begin
         if (rising_edge(Clk)) then
-            if (Adr_Cntr = 7) then
+            if (Adr_Cntr >= 319) then
                 Adr_Cntr <= 0;    
                 LB1_En_A <= '1';
                 LB1_En_B <= '1';
             else
                 Adr_Cntr <= Adr_Cntr + 1;
             end if;
-            Write_Adr <= std_logic_vector(to_unsigned(Adr_Cntr, 10));
-            Read_Adr  <= std_logic_vector(to_unsigned(Adr_Cntr, 10));
+            Write_Adr <= std_logic_vector(to_unsigned(Adr_Cntr, 9));
+            if (Adr_Cntr = 0) then
+                Read_Adr <= "100111111";
+            else
+                Read_Adr  <= std_logic_vector(to_unsigned(Adr_Cntr, 9) - 1);
+            end if;
         end if;
     end process;
     
@@ -207,15 +210,18 @@ begin
     MAC_SF: process(Clk)
     begin
         if(rising_edge(Clk)) then
-            --FIR_Sum <= resize(std_logic_vector(unsigned(FIR0_Do) + unsigned(FIR1_Do) + unsigned(FIR2_Do)), 20);
-            FIR_Sum <= std_logic_vector(unsigned(FIR0_Do) + unsigned(FIR1_Do) + unsigned(FIR2_Do));
-            MAC     <= std_logic_vector(shift_right(unsigned(FIR_Sum), to_integer(unsigned(SF_Shift))));
+            if (i_Median_En = '0') then
+                --FIR_Sum <= resize(std_logic_vector(unsigned(FIR0_Do) + unsigned(FIR1_Do) + unsigned(FIR2_Do)), 20);
+                FIR_Sum <= std_logic_vector(unsigned(FIR0_Do) + unsigned(FIR1_Do) + unsigned(FIR2_Do));
+                MAC     <= std_logic_vector(shift_right(unsigned(FIR_Sum), to_integer(unsigned(SF_Shift))));
+            end if;
         end if;
     end process;
     
     Output_Control: process(Clk)
     begin   
         if(rising_edge(Clk)) then
+            if (i_Median_En = '0') then
 --            if (Pixel_Ready = 8) then
                 for i in MAC'high downto 7 loop
                     if MAC(i) = '1' then
@@ -231,7 +237,129 @@ begin
 --                Pixel_Ready <= Pixel_Ready + 1;
 --                o_Data      <= (others => 'Z');
 --            end if;
-        end if;
+            else -- else median filter selected
+                o_Data <= std_logic_vector( ((Median_Pipe4(7) + Median_Pipe4(8)) / 2));     -- output the median value, in the middle of point 7 and 8
+            end if; -- median check
+        end if; -- rising edge
     end process;
+    
+    -- Fully pipelined median sort using bitonic merge algorithm
+    Median_Sort: process(Clk)
+    begin
+        if (rising_edge(Clk)) then      
+                -- Shift data into weighted median array, stage 0 of the pipeline
+                -- First row of window pixel values
+                Median_Pipe0(0)  <= unsigned(i_Data);        -- Push new pixel data in
+                Median_Pipe0(1)  <= Median_Pipe0(0);
+                Median_Pipe0(2)  <= Median_Pipe0(0);
+                Median_Pipe0(3)  <= Median_Pipe0(2);
+                -- Second row of window values
+                Median_Pipe0(4)  <= unsigned(LB0_Do);        -- Push new pixel value into row
+                Median_Pipe0(5)  <= unsigned(LB0_Do);
+                Median_Pipe0(6)  <= Median_Pipe0(5);
+                Median_Pipe0(7)  <= Median_Pipe0(5);
+                Median_Pipe0(8)  <= Median_Pipe0(5);
+                Median_Pipe0(9)  <= Median_Pipe0(5);
+                Median_Pipe0(10) <= Median_Pipe0(9);
+                Median_Pipe0(11) <= Median_Pipe0(9);
+                Median_Pipe0(12) <= unsigned(LB1_Do);
+                Median_Pipe0(13) <= Median_Pipe0(12);
+                Median_Pipe0(14) <= Median_Pipe0(12);
+                Median_Pipe0(15) <= Median_Pipe0(14);
+                
+                -- Bitonic merge sort requires 2^N values, so force n(0) => 0
+                -- Weighted median filter, corner pixels lowest weighting, centre pixel highest weighting                            
+                                        
+            -- SORT PIPELINE STEP 1
+                -- STAGE 1
+                for i in 0 to 7 loop
+                    if (Median_Pipe0(i) > Median_Pipe0(i+8)) then
+                        Median_Pipe1(i)   <= Median_Pipe0(i+8);
+                        Median_Pipe1(i+8) <= Median_Pipe0(i);
+                    else 
+                        Median_Pipe1(i)   <= Median_Pipe0(i);
+                        Median_Pipe1(i+8) <= Median_Pipe0(i+8);
+                    end if;
+                end loop;
+                
+            -- SORT PIPELINE STEP 2
+                -- STAGE 1
+                for i in 0 to 3 loop
+                    if (Median_Pipe1(i) > Median_Pipe1(i+4)) then
+                        Median_Pipe2(i)   <= Median_Pipe1(i+4);
+                        Median_Pipe2(i+4) <= Median_Pipe1(i);
+                    else
+                        Median_Pipe2(i)   <= Median_Pipe1(i);
+                        Median_Pipe2(i+4) <= Median_Pipe1(i+4);
+                    end if;
+                end loop;
+                
+                -- STAGE 2
+                for i in 8 to 11 loop
+                    if (Median_Pipe1(i) > Median_Pipe1(i+4)) then
+                        Median_Pipe2(i)   <= Median_Pipe1(i+4);
+                        Median_Pipe2(i+4) <= Median_Pipe1(i);
+                    else
+                        Median_Pipe2(i)   <= Median_Pipe1(i);
+                        Median_Pipe2(i+4) <= Median_Pipe1(i+4);
+                    end if;
+                end loop;
+                
+            -- SORT PIPELINE STEP 3 
+                -- STAGE 1
+                for i in 0 to 1 loop
+                    if (Median_Pipe2(i) > Median_Pipe2(i+2)) then
+                        Median_Pipe3(i)   <= Median_Pipe2(i+2);
+                        Median_Pipe3(i+2) <= Median_Pipe2(i);
+                    else
+                        Median_Pipe3(i)   <= Median_Pipe2(i);
+                        Median_Pipe3(i+2) <= Median_Pipe2(i+2);
+                    end if;
+                end loop;
+                -- STAGE 2
+                for i in 4 to 5 loop
+                    if (Median_Pipe2(i) > Median_Pipe2(i+2)) then
+                        Median_Pipe3(i)   <= Median_Pipe2(i+2);
+                        Median_Pipe3(i+2) <= Median_Pipe2(i);
+                    else
+                        Median_Pipe3(i)   <= Median_Pipe2(i);
+                        Median_Pipe3(i+2) <= Median_Pipe2(i+2);
+                    end if;
+                end loop;
+                -- STAGE 3
+                for i in 8 to 9 loop
+                    if (Median_Pipe2(i) > Median_Pipe2(i+2)) then
+                        Median_Pipe3(i)   <= Median_Pipe2(i+2);
+                        Median_Pipe3(i+2) <= Median_Pipe2(i);
+                    else
+                        Median_Pipe3(i)   <= Median_Pipe2(i);
+                        Median_Pipe3(i+2) <= Median_Pipe2(i+2);
+                    end if;
+                end loop;
+                -- STAGE 4
+                for i in 12 to 13 loop
+                    if (Median_Pipe2(i) > Median_Pipe2(i+2)) then
+                        Median_Pipe3(i)   <= Median_Pipe2(i+2);
+                        Median_Pipe3(i+2) <= Median_Pipe2(i);
+                    else
+                        Median_Pipe3(i)   <= Median_Pipe2(i);
+                        Median_Pipe3(i+2) <= Median_Pipe2(i+2);
+                    end if;
+                end loop;
+                                            
+            -- SORT PIPELINE STEP 4
+                -- STAGE 1
+                for i in 0 to 7 loop
+                    if (Median_Pipe3(2*i) > Median_Pipe3(2*i+1)) then
+                        Median_Pipe4((2*i)+1) <= Median_Pipe3(2*i);
+                        Median_Pipe4(2*i)     <= Median_Pipe3((2*i)+1);
+                    else
+                        Median_Pipe4(2*i)     <= Median_Pipe3(2*i);
+                        Median_Pipe4((2*i)+1) <= Median_Pipe3((2*i)+1);
+                    end if;
+                end loop;    
+
+            end if;     
+        end process;
     
 end Behavioral;
