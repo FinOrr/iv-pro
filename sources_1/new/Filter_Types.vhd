@@ -2,6 +2,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+library work;
+use work.sys_param.all;
+
 package FILTER_TYPES is
 
 --subtype pipeline is std_logic_vector(25 downto 0);
@@ -17,4 +20,6 @@ package FILTER_TYPES is
     
     type kernel is array (KERNEL_WIDTH-1 downto 0) of coeff_array;        
 
+    type Median_Array is array(15 downto 0) of unsigned(BPP-1 downto 0);
+    
 end package;
