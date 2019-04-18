@@ -16,26 +16,11 @@ entity OV7670_Top is
         i_OV7670_VSYNC  :   in  std_logic;
         i_PIXEL_ADR     :   in  std_logic_vector(LB_ADR_BUS_WIDTH-1 downto 0);
         -- Outputs
-        o_OV7670_SCL    :   out std_logic;
-        o_OV7670_SDA    :   out std_logic;
         o_PIXEL_DATA    :   out std_logic_vector(BPP-1 downto 0)
     );
 end OV7670_Top;
 
 architecture Behavioral of OV7670_Top is
-    
-    component OV7670_Controller is
-        generic (
-            System_Freq : natural;
-            Bus_Freq    : natural
-        );
-        port (
-            i_Clk   : in  std_logic;
-            i_Reset : in  std_logic;
-            SCL     : out std_logic;
-            SDA     : out std_logic
-        );
-    end component;
     
     component OV7670_Capture is
         port (
@@ -50,49 +35,13 @@ architecture Behavioral of OV7670_Top is
             o_Do            :   out std_logic_vector(BPP-1 downto 0)
         );
     end component;
-        
-        
-    component RAM_DP is
-        generic (
-            RAM_WIDTH : natural;    -- Number of bits in RAM word
-            RAM_DEPTH : natural     -- Number of unique RAM addresses
-        );
-        port(
-        -- Inputs 
-            Reset   : in std_logic;                     -- Reset to clear output
-            Clk   : in std_logic;                     -- RAM clock
-        -- Port A (Write)
-            En_a    : in std_logic;                     -- Port A Enable
-            Adr_a   : in std_logic_vector(integer(ceil(log2(real(RAM_DEPTH))))-1 downto 0); -- Port A (Write) Address
-            Di      : in std_logic_vector(RAM_WIDTH -1 downto 0); -- Port A (Write) Data In
-        -- Port B (Read)
-            En_b    : in std_logic;                     -- Port B Enable
-            Adr_b   : in std_logic_vector(integer(ceil(log2(real(RAM_DEPTH))))-1 downto 0); -- Port B (Read) Address
-            Do      : out std_logic_vector(RAM_WIDTH -1 downto 0) -- Port B (Read) Data Out
-        );
-    end component;
-    
+           
     signal RAM_PORT_A_EN : std_logic := '0';
-    signal RAM_PORT_B_EN : std_logic := '1';
     signal RAM_ADR_A     : std_logic_vector(LB_ADR_BUS_WIDTH - 1 downto 0) := (others => '0');
     signal RAM_DATA      : std_logic_vector(BPP-1 downto 0) := (others => '0');
     
 begin
-   
-    -- 100KHz SCCB bus SCL
-    OV7670_Control: OV7670_Controller
-        generic map (
-            System_Freq => SYS_XTAL_FREQ,
-            Bus_Freq    => SCCB_SCL_FREQ
-        )
-        port map (
-            i_Clk       => Clk_100,
-            i_Reset     => Reset,
-            SCL         => o_OV7670_SCL,
-            SDA         => o_OV7670_SDA
-        );
-       
-    
+      
     Capture_Logic: OV7670_Capture
         port map (
             -- Inputs   
@@ -106,23 +55,4 @@ begin
             o_Do        => RAM_DATA
         );
         
-    LineBuffer: RAM_DP
-        generic map (
-            RAM_WIDTH => BPP,
-            RAM_DEPTH => FRAME_WIDTH
-        )
-        port map (
-        -- Inputs
-            Clk     => i_OV7670_PCLK,
-            Reset   => Reset,
-        -- Port A (Write Port)
-            En_a    => RAM_PORT_A_EN,
-            Adr_a   => RAM_ADR_A,
-            Di      => RAM_DATA,
-        -- Port B (Read Port)
-            En_b    => RAM_PORT_B_EN,
-            Adr_b   => i_Pixel_Adr,
-            Do      => o_Pixel_Data
-        );
-
 end Behavioral;

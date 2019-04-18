@@ -98,20 +98,16 @@ architecture Behavioral of FIR_2D is
         );
     end component;
     
-    component RAM_DP is
-        port (
-            -- Inputs 
-            Clk_a   : in std_logic;                         -- RAM write clock
-            Clk_b   : in std_logic;                         -- RAM read clock
-            Reset   : in std_logic;                         -- Reset to clear output
-        -- Port A (Write)
-            En_a    : in std_logic;                         -- Port A Enable
-            Adr_a   : in std_logic_vector(LB_ADR_BUS_WIDTH-1 downto 0);      -- Port A (Write) Address
-            Di      : in std_logic_vector(BPP-1 downto 0);      -- Port A (Write) Data In
-        -- Port B (Read)
-            En_b    : in std_logic;                         -- Port B Enable
-            Adr_b   : in std_logic_vector(LB_ADR_BUS_WIDTH-1 downto 0);      -- Port B (Read) Address
-            Do      : out std_logic_vector(BPP-1 downto 0)      -- Port B (Read) Data Out
+    component RAM_LB is
+        port(
+        -- Inputs 
+            Clk     : in std_logic;                     -- RAM write port clock
+            Reset   : in std_logic;                     -- Reset to clear output
+            En      : in std_logic;                     -- Port A Enable
+            Write_En: in std_logic;                     -- Port B Enable
+            Adr     : in std_logic_vector(integer(ceil(log2(real(FRAME_WIDTH))))-1 downto 0); -- Port A (Write) Address
+            Di      : in std_logic_vector(BPP -1 downto 0); -- Port A (Write) Data In
+            Do      : out std_logic_vector(BPP -1 downto 0) -- Port B (Read) Data Out
         );
     end component;
     
@@ -134,11 +130,10 @@ begin
     Input_Pixel     <= i_Data;
     
     
-    Line_Buffer0: RAM_DP
+    Line_Buffer0: RAM_LB
         port map (
             -- Inputs 
-            Clk_a   => Clk,
-            Clk_b   => Clk,
+            Clk     => Clk,
             Reset   => Reset,
             -- Port A (Write)
             En_a    => LB0_En_A,
@@ -153,8 +148,7 @@ begin
     Line_Buffer1: RAM_DP
         port map (
             -- Inputs 
-            Clk_a   => Clk,
-            Clk_b   => Clk,
+            Clk     => Clk,
             Reset   => Reset,
             -- Port A (Write)
             En_a    => LB1_En_A,
