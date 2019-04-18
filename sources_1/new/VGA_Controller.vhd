@@ -11,6 +11,7 @@ entity VGA_Controller is
         Clk          : in std_logic;
         i_Pixel_Data : in std_logic_vector(BPP-1 downto 0);
         -- Outputs
+        o_Active     : out std_logic;
         o_HSync      : out std_logic;
         o_VSync      : out std_logic;
         o_Red        : out std_logic_vector(3 downto 0);
@@ -50,6 +51,8 @@ begin
 
     -- Local clock register
     Pixel_Clk <= Clk;
+    -- Active drawing region indicator
+    o_Active <= '1' when Active = "1111" else '0';
     
     -- Buffer inputs
     VGA_Red     <= i_Pixel_Data(7 downto 4);

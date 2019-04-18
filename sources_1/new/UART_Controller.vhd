@@ -13,12 +13,13 @@ entity UART_Controller is
         i_RX            : in std_logic;
         i_FB_Byte       : in std_logic_vector(7 downto 0);
         -- Outputs
+        o_Input_Mode    : out std_logic;
         o_Contrast_En   : out std_logic;
         o_Threshold_En  : out std_logic;
         o_Median_En     : out std_logic;
         o_Coef_En       : out std_logic;
         o_Coef_Adr      : out std_logic_vector(7 downto 0);
-        o_Adr           : out std_logic_vector(LB_ADR_BUS_WIDTH -1 downto 0); -- Address of pixel value in frame buffer
+        o_Adr           : out std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0); -- Address of pixel value in frame buffer
         o_Write_En      : out std_logic;                        -- Enable the frame buffer to write the data value
         o_Read_En       : out std_logic;                        -- Enable the read port on the frame buffer       
         o_FB_Byte       : out std_logic_vector(7 downto 0);
@@ -56,7 +57,7 @@ architecture Behavioral of UART_CONTROLLER is
     end component;
     signal Coef_Adr     : std_logic_vector(7 downto 0) := (others => '0');
     signal Coef_En      : std_logic := '0';
-    signal Adr          : unsigned(LB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');     -- RAM address
+    signal Adr          : unsigned(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');     -- RAM address
     signal Byte_Count   : natural range 0 to FRAME_PIXELS := 0;                         -- Number of received bytes
     signal CMD_Sent     : std_logic := '0';                                             -- filter configured flag
     
@@ -71,8 +72,8 @@ architecture Behavioral of UART_CONTROLLER is
     
 begin 
 
-    o_Adr <= std_logic_vector(to_unsigned((Byte_Count), LB_ADR_BUS_WIDTH));
-    o_Coef_Adr <= Coef_Adr;
+    o_Adr <= std_logic_vector(to_unsigned((Byte_Count), FB_ADR_BUS_WIDTH));
+
     UART_RX: UART_Receiver
         generic map (
             BAUD_RATE => 115200
@@ -119,20 +120,21 @@ begin
                     if (CMD_Sent = '0') then    -- First command bytes haven't been received
                         Byte_Count <= Byte_Count + 1;
                         case Byte_Count is
-                            when 0 =>                   -- Filter type CMD byte
-                                if (RX_Byte = x"00") then   -- WINDOW OPERATION
+                            when 0 =>                           -- Filter type CMD byte
+                                o_Input_Mode <= RX_Byte(7);     -- [7] = '0': use camera input.     [7] = '1': use UART values
+                                if (RX_Byte(3 downto 0) = x"0") then   -- WINDOW OPERATION
                                     o_Contrast_En <= '0';       -- Disable Contrast stretching filter
                                     o_Threshold_En <= '0';      -- Disable thresholding filter
                                     o_Median_En <= '0';         -- Disable median filter
-                                elsif (RX_Byte = x"01") then -- CONTRAST STRETCH OPERATION
+                                elsif (RX_Byte(3 downto 0) = x"1") then -- CONTRAST STRETCH OPERATION
                                     o_Contrast_En <= '1';       -- Enable constrast stretching filter
                                     o_Threshold_En <= '0';      -- Disable thresholding filter
                                     o_Median_En <= '0';         -- Disable median filter
-                                elsif (RX_Byte = x"02") then -- THRESHOLDING OPERATION
+                                elsif (RX_Byte(3 downto 0) = x"2") then -- THRESHOLDING OPERATION
                                     o_Contrast_En <= '0';       -- Disable contrast stretching filter
                                     o_Threshold_En <= '1';      -- Enable thresholding filter
                                     o_Median_En <= '0';         -- Disable median filter
-                                elsif (RX_Byte = x"03") then -- MEDIAN FILTER
+                                elsif (RX_Byte(3 downto 0) = x"3") then -- MEDIAN FILTER
                                     o_Contrast_En <= '0';       -- Disable constrast stretching
                                     o_Threshold_En <= '0';      -- Disbale thresholding
                                     o_Median_En <= '1';         -- Enable median filtering

@@ -13,7 +13,7 @@ package SYS_PARAM is
     constant BPP  : natural := 8;  -- Number of bits per pixel
     
 -- VGA Parameters -- 
-    -- 640x480 @ 60Hz --
+    -- 620*240 @ 60Hz --
     constant FRAME_WIDTH  : natural := 320; -- Active region width (pixels)
     constant FRAME_HEIGHT : natural := 240; -- Active region height (pixels)
     constant FRAME_PIXELS : natural := FRAME_WIDTH * FRAME_HEIGHT;
@@ -37,5 +37,6 @@ package SYS_PARAM is
    
 -- Linebuffer RAM Parameters
     constant LB_ADR_BUS_WIDTH   : natural := integer(ceil(log2(real(FRAME_WIDTH - 1))));
+    constant FB_ADR_BUS_WIDTH   : natural := integer(ceil(log2(real(FRAME_PIXELS - 1))));
     
 end package;
