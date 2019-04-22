@@ -1,0 +1,550 @@
+classdef IVPRO_GUI < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        IVPRO                    matlab.ui.Figure
+        TabGroup                 matlab.ui.container.TabGroup
+        SerialConfigTab          matlab.ui.container.Tab
+        CmdBox                   matlab.ui.control.EditField
+        CmdBoxLabel              matlab.ui.control.Label
+        HistoryBox               matlab.ui.control.TextArea
+        HistoryBoxLabel          matlab.ui.control.Label
+        Panel_2                  matlab.ui.container.Panel
+        DisconnectButton         matlab.ui.control.Button
+        ConnectButton            matlab.ui.control.Button
+        RefreshButton            matlab.ui.control.Button
+        SelectPortDropDownLabel  matlab.ui.control.Label
+        SelectPortDropDown       matlab.ui.control.DropDown
+        PreStatusLabel           matlab.ui.control.Label
+        StatusLabel              matlab.ui.control.Label
+        RXHistory                matlab.ui.control.TextArea
+        RXLabel                  matlab.ui.control.Label
+        FilterConfigTab          matlab.ui.container.Tab
+        SelectImageButton        matlab.ui.control.Button
+        FilterControlPanel       matlab.ui.container.ButtonGroup
+        DenoiseMeanButton        matlab.ui.control.RadioButton
+        SharpenButton            matlab.ui.control.RadioButton
+        DenoiseGaussianButton    matlab.ui.control.RadioButton
+        EdgeDetectionXButton     matlab.ui.control.RadioButton
+        StretchContrastButton    matlab.ui.control.RadioButton
+        ThresholdButton          matlab.ui.control.RadioButton
+        EdgeDetectionYButton     matlab.ui.control.RadioButton
+        DenoiseMedianButton      matlab.ui.control.RadioButton
+        ThresholdSpinnerLabel    matlab.ui.control.Label
+        ThresholdSpinner         matlab.ui.control.Spinner
+        InputImageLabel          matlab.ui.control.Label
+        Panel                    matlab.ui.container.Panel
+        RunfilterButton          matlab.ui.control.Button
+        Label                    matlab.ui.control.Label
+        InputImagePanel          matlab.ui.container.Panel
+        InputImagebox            matlab.ui.control.UIAxes
+        InputHistogram           matlab.ui.control.UIAxes
+        OutputImagePanel         matlab.ui.container.Panel
+        OutputImagebox           matlab.ui.control.UIAxes
+        OutputHistogram          matlab.ui.control.UIAxes
+    end
+
+    
+    methods (Access = public)
+        
+        function DisplayRX(app, src, event)
+            global SER;
+            global OUTPUT_IMG;
+            Data = 0;
+            for i = 1:2
+                for j = 1:2
+                    Data = fread(SER,1);
+                    OUTPUT_IMG(i,j) = uint8(Data);
+                end
+            end
+            % Generate histogram for input image
+            imshow(OUTPUT_IMG, 'Parent', app.OutputImagebox);
+            OutputHist = histogram(app.OutputHistogram, OUTPUT_IMG, 'FaceColor',[0 0 0],'EdgeColor', 'none');
+            max_lum = max(OutputHist.BinCounts);
+            app.OutputHistogram.YLim = [0 max_lum];
+            app.OutputHistogram.XTick = (0 : 32 : 255);
+            app.OutputHistogram.YTick = (0:max_lum/10:max_lum);
+        end
+    end
+
+    % Callbacks that handle component events
+    methods (Access = private)
+
+        % Code that executes after component creation
+        function startupFcn(app)
+            % Clean port and RX_PORTial object before starting
+            delete(instrfindall);
+            % Populate the COM Port
+            comPorts = seriallist;
+            app.SelectPortDropDown.Items = comPorts;
+            app.HistoryBox.Editable = 'off';
+            app.StatusLabel.Text = "Disconnected";
+        end
+
+        % Key press function: IVPRO
+        function SerialTX(app, event)
+
+            
+        end
+
+        % Button pushed function: SelectImageButton
+        function SelectImageButtonPushed(app, event)
+            global INPUT_IMG;
+            
+            % Get file location from UI
+            [f_name, f_path] = uigetfile({'*.*';'*.bmp';'*.png';'*.jpg';'*.jpeg'}, 'Select image to download to FPGA');
+            f_adr = [f_path f_name];
+            % Check an image was selected
+            if (ischar(f_path))
+                % Read image data to input_img var
+                INPUT_IMG = imread(f_adr);
+                % Update the button text showing the image name
+                app.SelectImageButton.Text = f_name;
+                % Display image in GUI
+                imshow(INPUT_IMG, 'Parent', app.InputImagebox);
+                
+                % Generate histogram for input image
+                input_hist = histogram(app.InputHistogram, INPUT_IMG, 'FaceColor',[0 0 0],'EdgeColor', 'none');
+                max_lum = max(input_hist.BinCounts);
+                app.InputHistogram.YLim = [0 max_lum];
+                app.InputHistogram.YTick = (0:max_lum/10:max_lum);
+            end
+        end
+
+        % Value changed function: SelectPortDropDown
+        function SelectPortDropDownValueChanged(app, event)
+           global TRX_PORT;
+           TRX_PORT = app.SelectPortDropDown.Value;
+        end
+
+        % Button pushed function: ConnectButton
+        function ConnectButtonPushed(app, event)
+            global SER;
+            global TRX_PORT;
+            
+            % Close any existing connection
+            delete(instrfindall);
+            
+            % Connect using new parameters
+            TRX_PORT = app.SelectPortDropDown.Value;
+            SER = serial(TRX_PORT, 'BaudRate', 115200);
+            SER.InputBufferSize = 80000;
+            SER.BytesAvailableFcnCount = 4;
+            SER.BytesAvailableFcnMode = 'byte';
+            SER.BytesAvailableFcn = @(src, event) app.DisplayRX(src, event);
+            SER.ReadAsyncMode = 'manual';
+            SER.StopBits = 1;
+            SER.Terminator = 'CR/LF';
+            SER.Parity = 'none';
+            fopen(SER);            
+            if SER.Status == "open"
+                app.StatusLabel.Text = "Connected to " + TRX_PORT;
+            else
+                app.StatusLabel.Text = "Disconnected";
+            end
+            
+        end
+
+        % Button pushed function: RefreshButton
+        function RefreshButtonPushed(app, event)
+            % Populate the COM Port
+            comPorts = seriallist;
+            app.SelectPortDropDown.Items = comPorts;
+        end
+
+        % Button pushed function: DisconnectButton
+        function DisconnectButtonPushed(app, event)
+            global SER;
+            fclose(SER);
+            delete(instrfindall);
+            app.StatusLabel.Text = "Disconnected";
+        end
+
+        % Value changed function: CmdBox
+        function CmdBoxValueChanged(app, event)
+            global TX_DATA;
+            global SER;
+            
+            % Capture uRX_PORT input
+            TX_DATA = string(app.CmdBox.Value);
+            % Clear the command box
+            app.CmdBox.Value = '';
+            % Transmit RX_PORTial command
+            fprintf(SER, TX_DATA);
+            
+            % Format the uRX_PORT input into LOG format
+            History = strcat('Sent @ ', datestr(now), ': \n', TX_DATA);
+            % Update command history log
+            app.HistoryBox.Value = sprintf(History);
+            
+        end
+
+        % Button pushed function: RunfilterButton
+        function RunfilterButtonPushed(app, event)
+            global SER;
+            global INPUT_IMG;
+            global OUTPUT_IMG;
+            %             PixelCounter = 0;
+            PixelValue = 0;
+            DL_IMG = rgb2gray(im2uint8(INPUT_IMG));
+            
+            % imshow(DL_IMG, 'Parent', app.OutputImagebox);
+            % Update filter paramters
+            F_ADR = 0;
+            F_TYPE = 0;
+            F_THRESHOLD = 0;
+            if app.DenoiseMeanButton.Value == true
+                F_TYPE = dec2bin(0,8);
+                F_ADR = dec2bin(40,8);
+                F_THRESHOLD = dec2bin(0,8);
+                
+            elseif  app.SharpenButton.Value == true
+                F_TYPE = dec2bin(0,8);
+                F_ADR = dec2bin(0,8);
+                F_THRESHOLD = dec2bin(0,8);
+                
+            elseif app.DenoiseGaussianButton.Value == true
+                F_TYPE = dec2bin(0,8);
+                F_ADR = dec2bin(30,8);
+                F_THRESHOLD = dec2bin(0,8);
+                
+            elseif app.EdgeDetectionXButton.Value == true
+                F_TYPE = dec2bin(0,8);
+                F_ADR = dec2bin(10,8);
+                F_THRESHOLD = dec2bin(0,8);
+                
+            elseif app.StretchContrastButton.Value == true
+                F_TYPE = dec2bin(1,8);
+                F_ADR = dec2bin(0,8);
+                F_THRESHOLD = dec2bin(0,8);
+                
+            elseif app.ThresholdButton.Value == true
+                F_TYPE = dec2bin(2,8);
+                F_ADR = dec2bin(0,8);
+                F_THRESHOLD = dec2bin(app.ThresholdSpinner.Value, 8);
+                
+            elseif app.EdgeDetectionYButton.Value == true
+                F_TYPE = dec2bin(0,8);
+                F_ADR = dec2bin(20,8);
+                F_THRESHOLD = dec2bin(0,8);
+                
+            elseif app.DenoiseMedianButton.Value == true
+                F_TYPE = dec2bin(3,8);
+                F_ADR = dec2bin(0,8);
+                F_THRESHOLD = dec2bin(0,8);
+            end
+            
+            % Filter type command
+            fprintf(SER, F_TYPE);
+            % Filter address command
+            fprintf(SER, F_ADR);
+            % Filter threshold command
+            fprintf(SER, F_THRESHOLD);
+            
+            % Transmit image data
+            [rows,cols]=size(DL_IMG);
+            OUTPUT_IMG = zeros(rows,cols,'uint8');
+%             for i=1:rows
+%                 for j=1:columns
+%                     PixelCounter = PixelCounter + 1;
+%                     PixelData = num2str(DL_IMG(i,j));
+%                     fprintf(SER, '\n%d:', PixelCounter);
+%                     fprintf(SER, '\n%d', PixelData);
+%                 end
+%             end
+            readasync(SER,4);
+            
+        end
+
+        % Callback function
+        function ApplyFiltersButtonPushed(app, event)
+            
+        end
+
+        % Callback function
+        function SetthresholdSliderValueChanged(app, event)
+            
+        end
+    end
+
+    % Component initialization
+    methods (Access = private)
+
+        % Create UIFigure and components
+        function createComponents(app)
+
+            % Create IVPRO and hide until all components are created
+            app.IVPRO = uifigure('Visible', 'off');
+            app.IVPRO.Colormap = [0.2431 0.149 0.6588;0.251 0.1647 0.7059;0.2588 0.1804 0.7529;0.2627 0.1961 0.7961;0.2706 0.2157 0.8353;0.2745 0.2353 0.8706;0.2784 0.2549 0.898;0.2784 0.2784 0.9216;0.2824 0.302 0.9412;0.2824 0.3216 0.9569;0.2784 0.3451 0.9725;0.2745 0.3686 0.9843;0.2706 0.3882 0.9922;0.2588 0.4118 0.9961;0.2431 0.4353 1;0.2196 0.4588 0.9961;0.1961 0.4863 0.9882;0.1843 0.5059 0.9804;0.1804 0.5294 0.9686;0.1765 0.549 0.9529;0.1686 0.5686 0.9373;0.1529 0.5922 0.9216;0.1451 0.6078 0.9098;0.1373 0.6275 0.898;0.1255 0.6471 0.8902;0.1098 0.6627 0.8745;0.0941 0.6784 0.8588;0.0706 0.6941 0.8392;0.0314 0.7098 0.8157;0.0039 0.7216 0.7922;0.0078 0.7294 0.7647;0.0431 0.7412 0.7412;0.098 0.749 0.7137;0.1412 0.7569 0.6824;0.1725 0.7686 0.6549;0.1922 0.7765 0.6235;0.2157 0.7843 0.5922;0.2471 0.7922 0.5569;0.2902 0.7961 0.5176;0.3412 0.8 0.4784;0.3922 0.8039 0.4353;0.4471 0.8039 0.3922;0.5059 0.8 0.349;0.5608 0.7961 0.3059;0.6157 0.7882 0.2627;0.6706 0.7804 0.2235;0.7255 0.7686 0.1922;0.7725 0.7608 0.1647;0.8196 0.749 0.1529;0.8627 0.7412 0.1608;0.902 0.7333 0.1765;0.9412 0.7294 0.2118;0.9725 0.7294 0.2392;0.9961 0.7451 0.2353;0.9961 0.7647 0.2196;0.9961 0.7882 0.2039;0.9882 0.8118 0.1882;0.9804 0.8392 0.1765;0.9686 0.8627 0.1647;0.9608 0.8902 0.1529;0.9608 0.9137 0.1412;0.9647 0.9373 0.1255;0.9686 0.9608 0.1059;0.9765 0.9843 0.0824];
+            app.IVPRO.Position = [100 100 1139 715];
+            app.IVPRO.Name = 'UI Figure';
+            app.IVPRO.KeyPressFcn = createCallbackFcn(app, @SerialTX, true);
+
+            % Create TabGroup
+            app.TabGroup = uitabgroup(app.IVPRO);
+            app.TabGroup.Tooltip = {''};
+            app.TabGroup.Position = [1 -1 272 717];
+
+            % Create SerialConfigTab
+            app.SerialConfigTab = uitab(app.TabGroup);
+            app.SerialConfigTab.Tooltip = {''};
+            app.SerialConfigTab.Title = 'Serial Config';
+            app.SerialConfigTab.Scrollable = 'on';
+
+            % Create CmdBox
+            app.CmdBox = uieditfield(app.SerialConfigTab, 'text');
+            app.CmdBox.ValueChangedFcn = createCallbackFcn(app, @CmdBoxValueChanged, true);
+            app.CmdBox.Position = [12 428 245 22];
+
+            % Create CmdBoxLabel
+            app.CmdBoxLabel = uilabel(app.SerialConfigTab);
+            app.CmdBoxLabel.FontSize = 10;
+            app.CmdBoxLabel.Position = [41 410 187 22];
+            app.CmdBoxLabel.Text = 'Type commands and press enter to send';
+
+            % Create HistoryBox
+            app.HistoryBox = uitextarea(app.SerialConfigTab);
+            app.HistoryBox.Position = [12 292 245 61];
+
+            % Create HistoryBoxLabel
+            app.HistoryBoxLabel = uilabel(app.SerialConfigTab);
+            app.HistoryBoxLabel.Position = [16 360 96 22];
+            app.HistoryBoxLabel.Text = 'Serial TX History';
+
+            % Create Panel_2
+            app.Panel_2 = uipanel(app.SerialConfigTab);
+            app.Panel_2.Position = [0 511 271 181];
+
+            % Create DisconnectButton
+            app.DisconnectButton = uibutton(app.Panel_2, 'push');
+            app.DisconnectButton.ButtonPushedFcn = createCallbackFcn(app, @DisconnectButtonPushed, true);
+            app.DisconnectButton.Position = [137 23 119 27];
+            app.DisconnectButton.Text = 'Disconnect';
+
+            % Create ConnectButton
+            app.ConnectButton = uibutton(app.Panel_2, 'push');
+            app.ConnectButton.ButtonPushedFcn = createCallbackFcn(app, @ConnectButtonPushed, true);
+            app.ConnectButton.Position = [16 23 111 27];
+            app.ConnectButton.Text = 'Connect';
+
+            % Create RefreshButton
+            app.RefreshButton = uibutton(app.Panel_2, 'push');
+            app.RefreshButton.ButtonPushedFcn = createCallbackFcn(app, @RefreshButtonPushed, true);
+            app.RefreshButton.Icon = 'icons8-synchronize-filled-24.png';
+            app.RefreshButton.Position = [212 79 44 26];
+            app.RefreshButton.Text = '';
+
+            % Create SelectPortDropDownLabel
+            app.SelectPortDropDownLabel = uilabel(app.Panel_2);
+            app.SelectPortDropDownLabel.HorizontalAlignment = 'center';
+            app.SelectPortDropDownLabel.Position = [16 81 80 22];
+            app.SelectPortDropDownLabel.Text = 'Select Port';
+
+            % Create SelectPortDropDown
+            app.SelectPortDropDown = uidropdown(app.Panel_2);
+            app.SelectPortDropDown.Items = {'NO PORTS'};
+            app.SelectPortDropDown.ValueChangedFcn = createCallbackFcn(app, @SelectPortDropDownValueChanged, true);
+            app.SelectPortDropDown.Position = [105 81 97 22];
+            app.SelectPortDropDown.Value = 'NO PORTS';
+
+            % Create PreStatusLabel
+            app.PreStatusLabel = uilabel(app.Panel_2);
+            app.PreStatusLabel.Position = [16 138 105 22];
+            app.PreStatusLabel.Text = 'Connection status:';
+
+            % Create StatusLabel
+            app.StatusLabel = uilabel(app.Panel_2);
+            app.StatusLabel.Position = [126 138 118 22];
+            app.StatusLabel.Text = 'Connected';
+
+            % Create RXHistory
+            app.RXHistory = uitextarea(app.SerialConfigTab);
+            app.RXHistory.Position = [12 157 246 60];
+
+            % Create RXLabel
+            app.RXLabel = uilabel(app.SerialConfigTab);
+            app.RXLabel.Position = [16 216 97 22];
+            app.RXLabel.Text = 'Serial RX History';
+
+            % Create FilterConfigTab
+            app.FilterConfigTab = uitab(app.TabGroup);
+            app.FilterConfigTab.Title = 'Filter Config';
+
+            % Create SelectImageButton
+            app.SelectImageButton = uibutton(app.FilterConfigTab, 'push');
+            app.SelectImageButton.ButtonPushedFcn = createCallbackFcn(app, @SelectImageButtonPushed, true);
+            app.SelectImageButton.BackgroundColor = [0.1608 0.1686 0.1725];
+            app.SelectImageButton.FontSize = 14;
+            app.SelectImageButton.FontColor = [0.9412 0.9412 0.9412];
+            app.SelectImageButton.Position = [13 566 247 46];
+            app.SelectImageButton.Text = 'Please select an image...';
+
+            % Create FilterControlPanel
+            app.FilterControlPanel = uibuttongroup(app.FilterConfigTab);
+            app.FilterControlPanel.TitlePosition = 'centertop';
+            app.FilterControlPanel.Title = 'Filter Control Panel';
+            app.FilterControlPanel.Position = [0 226 271 271];
+
+            % Create DenoiseMeanButton
+            app.DenoiseMeanButton = uiradiobutton(app.FilterControlPanel);
+            app.DenoiseMeanButton.Text = 'Denoise (Mean)';
+            app.DenoiseMeanButton.FontWeight = 'bold';
+            app.DenoiseMeanButton.Position = [5 215 111 22];
+            app.DenoiseMeanButton.Value = true;
+
+            % Create SharpenButton
+            app.SharpenButton = uiradiobutton(app.FilterControlPanel);
+            app.SharpenButton.Text = 'Sharpen';
+            app.SharpenButton.FontWeight = 'bold';
+            app.SharpenButton.Position = [141 99 70 22];
+
+            % Create DenoiseGaussianButton
+            app.DenoiseGaussianButton = uiradiobutton(app.FilterControlPanel);
+            app.DenoiseGaussianButton.Text = 'Denoise (Gaussian)';
+            app.DenoiseGaussianButton.FontWeight = 'bold';
+            app.DenoiseGaussianButton.Position = [5 137 134 22];
+
+            % Create EdgeDetectionXButton
+            app.EdgeDetectionXButton = uiradiobutton(app.FilterControlPanel);
+            app.EdgeDetectionXButton.Text = 'Edge Detection (X)';
+            app.EdgeDetectionXButton.FontWeight = 'bold';
+            app.EdgeDetectionXButton.Position = [141 215 129 22];
+
+            % Create StretchContrastButton
+            app.StretchContrastButton = uiradiobutton(app.FilterControlPanel);
+            app.StretchContrastButton.Text = 'Stretch Contrast';
+            app.StretchContrastButton.FontWeight = 'bold';
+            app.StretchContrastButton.Position = [141 137 116 22];
+
+            % Create ThresholdButton
+            app.ThresholdButton = uiradiobutton(app.FilterControlPanel);
+            app.ThresholdButton.Text = 'Threshold';
+            app.ThresholdButton.FontWeight = 'bold';
+            app.ThresholdButton.Position = [5 99 80 22];
+
+            % Create EdgeDetectionYButton
+            app.EdgeDetectionYButton = uiradiobutton(app.FilterControlPanel);
+            app.EdgeDetectionYButton.Text = 'Edge Detection (Y)';
+            app.EdgeDetectionYButton.FontWeight = 'bold';
+            app.EdgeDetectionYButton.Position = [141 175 129 22];
+
+            % Create DenoiseMedianButton
+            app.DenoiseMedianButton = uiradiobutton(app.FilterControlPanel);
+            app.DenoiseMedianButton.Text = 'Denoise (Median)';
+            app.DenoiseMedianButton.FontWeight = 'bold';
+            app.DenoiseMedianButton.Position = [7 175 121 22];
+
+            % Create ThresholdSpinnerLabel
+            app.ThresholdSpinnerLabel = uilabel(app.FilterControlPanel);
+            app.ThresholdSpinnerLabel.HorizontalAlignment = 'right';
+            app.ThresholdSpinnerLabel.Position = [5 53 59 22];
+            app.ThresholdSpinnerLabel.Text = 'Threshold';
+
+            % Create ThresholdSpinner
+            app.ThresholdSpinner = uispinner(app.FilterControlPanel);
+            app.ThresholdSpinner.Limits = [0 255];
+            app.ThresholdSpinner.RoundFractionalValues = 'on';
+            app.ThresholdSpinner.Position = [79 53 73 22];
+
+            % Create InputImageLabel
+            app.InputImageLabel = uilabel(app.FilterConfigTab);
+            app.InputImageLabel.Position = [13 613 247 22];
+            app.InputImageLabel.Text = 'Input Image';
+
+            % Create Panel
+            app.Panel = uipanel(app.FilterConfigTab);
+            app.Panel.BorderType = 'none';
+            app.Panel.Title = '  ';
+            app.Panel.Position = [1 2 270 225];
+
+            % Create RunfilterButton
+            app.RunfilterButton = uibutton(app.Panel, 'push');
+            app.RunfilterButton.ButtonPushedFcn = createCallbackFcn(app, @RunfilterButtonPushed, true);
+            app.RunfilterButton.BackgroundColor = [0.5647 0.8196 0.5647];
+            app.RunfilterButton.FontSize = 14;
+            app.RunfilterButton.FontColor = [0.1608 0.1529 0.1529];
+            app.RunfilterButton.Position = [29 84 215 59];
+            app.RunfilterButton.Text = 'Run filter';
+
+            % Create Label
+            app.Label = uilabel(app.FilterConfigTab);
+            app.Label.Position = [7 516 253 22];
+
+            % Create InputImagePanel
+            app.InputImagePanel = uipanel(app.IVPRO);
+            app.InputImagePanel.TitlePosition = 'centertop';
+            app.InputImagePanel.Title = 'Input Image';
+            app.InputImagePanel.BackgroundColor = [0.9412 0.9412 0.9412];
+            app.InputImagePanel.FontWeight = 'bold';
+            app.InputImagePanel.FontSize = 14;
+            app.InputImagePanel.Position = [272 359 868 357];
+
+            % Create InputImagebox
+            app.InputImagebox = uiaxes(app.InputImagePanel);
+            title(app.InputImagebox, '')
+            xlabel(app.InputImagebox, '')
+            ylabel(app.InputImagebox, '')
+            app.InputImagebox.Position = [13 24 475 287];
+
+            % Create InputHistogram
+            app.InputHistogram = uiaxes(app.InputImagePanel);
+            title(app.InputHistogram, 'Luminance Histogram')
+            xlabel(app.InputHistogram, 'Pixel Value')
+            ylabel(app.InputHistogram, 'Pixel Count')
+            app.InputHistogram.Position = [531 19 312 287];
+
+            % Create OutputImagePanel
+            app.OutputImagePanel = uipanel(app.IVPRO);
+            app.OutputImagePanel.TitlePosition = 'centertop';
+            app.OutputImagePanel.Title = 'Output Image';
+            app.OutputImagePanel.FontWeight = 'bold';
+            app.OutputImagePanel.FontSize = 14;
+            app.OutputImagePanel.Position = [272 0 868 360];
+
+            % Create OutputImagebox
+            app.OutputImagebox = uiaxes(app.OutputImagePanel);
+            title(app.OutputImagebox, '')
+            xlabel(app.OutputImagebox, '')
+            ylabel(app.OutputImagebox, '')
+            app.OutputImagebox.Position = [13 33 475 287];
+
+            % Create OutputHistogram
+            app.OutputHistogram = uiaxes(app.OutputImagePanel);
+            title(app.OutputHistogram, 'Luminance Histogram')
+            xlabel(app.OutputHistogram, 'Pixel Value')
+            ylabel(app.OutputHistogram, 'Pixel Count')
+            app.OutputHistogram.Position = [531 33 312 287];
+
+            % Show the figure after all components are created
+            app.IVPRO.Visible = 'on';
+        end
+    end
+
+    % App creation and deletion
+    methods (Access = public)
+
+        % Construct app
+        function app = IVPRO_GUI
+
+            % Create UIFigure and components
+            createComponents(app)
+
+            % Register the app with App Designer
+            registerApp(app, app.IVPRO)
+
+            % Execute the startup function
+            runStartupFcn(app, @startupFcn)
+
+            if nargout == 0
+                clear app
+            end
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+
+            % Delete UIFigure when app is deleted
+            delete(app.IVPRO)
+        end
+    end
+end
