@@ -1,7 +1,12 @@
 Physcial mounting hardware
 
-![alt text](BRACKET_0.png)
+> Basys 3 Board Mounting bracket
+>
+>![Board Bracket](https://github.com/FinOrr/IVPro/blob/master/hardware/BRACKET_0.PNG)
+>
+> Alternate view
+>![Board Bracket Alt](https://github.com/FinOrr/IVPro/blob/master/hardware/BRACKET_1.PNG)
 
-![alt text](BRACKET_1.png)
-
-![alt text](BRACKET_2.png)
+> Camera mounting bracket
+>
+>![Camera mounting bracket](https://github.com/FinOrr/IVPro/blob/master/hardware/BRACKET_2.PNG)
