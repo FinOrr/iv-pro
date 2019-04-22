@@ -20,6 +20,8 @@
 
 library WORK;
 use WORK.SYS_PARAM.ALL;
+use WORK.FILTER_TYPES.ALL;
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -137,6 +139,49 @@ architecture Behavioral of Top_Level is
         );
     end component;
        
+    -- 2D Filter
+    component FIR_2D is
+        port (
+            -- INPUTS
+            Clk                 :   in  std_logic;
+            i_Reset             :   in  std_logic;
+            i_Kernel            :   in  kernel;                         -- Input data
+            i_Scaling_Factor    :   in  std_logic_vector(3 downto 0);
+            i_Data              :   in  std_logic_vector(BPP-1 downto 0);
+            i_Median_En         :   in  std_logic;
+            -- OUTPUTS
+            o_Data              :   out std_logic_vector(BPP-1 downto 0)
+        );
+    end component;
+    
+    -- Contrast Stretching filter
+    component Contrast_Filter is
+        port (
+            -- Inputs
+            Clk         : in std_logic;
+            i_Enable    : in std_logic;
+            i_Data      : in std_logic_vector(BPP-1 downto 0);
+            -- Outputs
+            o_Data      : out std_logic_vector(BPP-1 downto 0);
+            o_Write_Adr : out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
+            o_Read_Adr  : out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
+            o_Write_En  : out std_logic
+        );
+    end component;
+    
+    component Threshold_Filter is
+        port (
+            Clk         : in std_logic;
+            i_Enable    : in std_logic;
+            i_Data      : in std_logic_vector(BPP-1 downto 0);
+            i_Threshold : in std_logic_vector(7 downto 0);
+            o_Read_Adr  : out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
+            o_Write_Adr : out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
+            o_Write_En  : out std_logic;
+            o_Data      : out std_logic_vector(BPP-1 downto 0)
+        );
+    end component;
+       
     -- VGA Controller
     component VGA_Controller is
         port (
@@ -220,17 +265,8 @@ begin
     OV7670_PWDN  <= '0';            -- Power down device 
     OV7670_XCLK  <= Clk_50;
 
-    -- 50MHz Clock generator
-    Clock_Gen_50MHz: Signal_Generator
-        generic map (
-            Frequency   => 50_000_000
-        )
-        port map (
-            i_Clk       => Clk_100,
-            o_Signal    => Clk_50
-        );
     -- 25MHz Clock Gen
-    Clock_Gen_25MHz: Signal_Generator
+    Clock_25MHz: Signal_Generator
         generic map (
             Frequency   => 25_000_000
         )
@@ -238,8 +274,18 @@ begin
             i_Clk       => Clk_100,
             o_Signal    => Clk_25
         );
+
+    -- 50MHz Clock generator
+    Clock_50MHz: Signal_Generator
+        generic map (
+            Frequency   => 50_000_000
+        )
+        port map (
+            i_Clk       => Clk_100,
+            o_Signal    => Clk_50
+        );
    
-   Filter_Parameters: Filter_ROM
+   ROM: Filter_ROM
         port map (
         -- Inputs 
             Clk    => Clk_100, 
@@ -250,6 +296,43 @@ begin
             Do     => Read_Filter_Coef
         );
        
+    Filter_2D: FIR_2D
+        port map (
+            -- INPUTS       
+            Clk                 => Clk_100, 
+            i_Reset             => Reset,
+            i_Kernel            => OPEN,
+            i_Scaling_Factor    => Filter_SF,
+            i_Data              => 
+            i_Median_En     
+            -- OUTPUTS      
+            o_Data          
+        );
+        
+    Contrast: Contrast_Filter
+        port map (
+            -- Inputs   
+            Clk         =>
+            i_Enable    =>
+            i_Data      =>
+            -- Outputs  
+            o_Data      =>
+            o_Write_Adr =>
+            o_Read_Adr  =>
+            o_Write_En  =>
+        );
+        
+    Threshold: Threshold_Filter
+        port map (
+            Clk         =>
+            i_Enable    =>
+            i_Data      =>
+            i_Threshold =>
+            o_Read_Adr  =>
+            o_Write_Adr =>
+            o_Write_En  =>
+            o_Data      =>
+        );
        
     Camera_Capture: OV7670_Capture
         port map (
@@ -267,7 +350,7 @@ begin
         );
     
     -- Frame buffer 0 : holds the unprocessed image
-    Frame_Buffer0 : RAM_FB
+    Frame_Buffer_IN : RAM_FB
         port map (         
            -- CLOCK 
            Clk     => OV7670_PCLK,
@@ -295,7 +378,7 @@ begin
         
     
     
-    UART_Control: UART_Controller
+    UART: UART_Controller
         port map (
             -- Inputs
             Clk             => Clk_100,
@@ -319,7 +402,7 @@ begin
         );
     
     -- VGA Controller
-    Display_Driver: VGA_Controller
+    VGA_DISPLAY: VGA_Controller
         port map(
             -- Input
             Clk             => Clk_25, 
