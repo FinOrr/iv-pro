@@ -38,7 +38,9 @@ entity FIR_2D is
         i_Data              :   in  std_logic_vector(BPP-1 downto 0);
         i_Median_En         :   in  std_logic;
         -- OUTPUTS
-        o_Data              :   out std_logic_vector(BPP-1 downto 0)
+        o_Data              :   out std_logic_vector(BPP-1 downto 0);
+        o_Write_Adr         :   out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
+        o_Write_En          :   out std_logic
     );
 end FIR_2D;
 

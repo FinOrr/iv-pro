@@ -11,6 +11,7 @@ entity VGA_Controller is
         Clk          : in std_logic;
         i_Pixel_Data : in std_logic_vector(BPP-1 downto 0);
         -- Outputs
+        o_Adr        : out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
         o_Active     : out std_logic;
         o_HSync      : out std_logic;
         o_VSync      : out std_logic;
@@ -46,19 +47,47 @@ architecture Behavioral of VGA_Controller is
     signal VGA_Green  : std_logic_vector(3 downto 0);
     signal VGA_Blue   : std_logic_vector(3 downto 0);
 
-
-begin
-
-    -- Local clock register
-    Pixel_Clk <= Clk;
-    -- Active drawing region indicator
-    o_Active <= '1' when Active = "1111" else '0';
+    -- Frame Buffer register address
+    signal Adr : unsigned(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
     
+begin
+    
+    -- Connect IO
+    o_HSync <= HSync;
+    o_VSync <= VSync;
+    o_RED   <= VGA_Red_Ctrl;
+    o_BLUE  <= VGA_Blue_Ctrl;
+    o_GREEN <= VGA_Green_Ctrl;
+    Pixel_Clk <= Clk;
+    o_Active <= '1' when Active = "1111" else '0';      -- Active drawing region indicator
+
+     
+    -- Active signal is high when drawing inside the active frame region
+    ACTIVE <= "1111" when (h_cntr < FRAME_WIDTH) and (v_cntr < FRAME_HEIGHT) else "0000";
+    
+    ------------------------------------------------------------
+    -- Turn Off VGA RBG Signals if outside of the active screen
+    -- Make a 4-bit AND logic with the R, G and B signals
+    ------------------------------------------------------------
+    VGA_Red_Ctrl    <= ACTIVE and VGA_Red;
+    VGA_Green_Ctrl  <= ACTIVE and VGA_Green;
+    VGA_Blue_Ctrl   <= ACTIVE and VGA_Blue;
+       
     -- Buffer inputs
     VGA_Red     <= i_Pixel_Data(7 downto 4);
     VGA_Green   <= i_Pixel_Data(7 downto 4);
     VGA_Blue    <= i_Pixel_Data(7 downto 4);
     
+    Address_Fetch: process(Pixel_Clk)
+    begin
+        if (rising_edge(Pixel_Clk)) then
+            if (Adr = FRAME_PIXELS-1) then
+                Adr <= (others => '0');
+            else
+                Adr <= Adr + 1;
+            end if;
+        end if;
+    end process;
     
     Horizontal_Counter: process (pixel_clk)
     begin
@@ -106,24 +135,4 @@ begin
         end if;
     end process;
      
-     
-    -- Active signal is high when drawing inside the active frame region
-    ACTIVE <= "1111" when (h_cntr < FRAME_WIDTH) and (v_cntr < FRAME_HEIGHT) else "0000";
-    
-    ------------------------------------------------------------
-    -- Turn Off VGA RBG Signals if outside of the active screen
-    -- Make a 4-bit AND logic with the R, G and B signals
-    ------------------------------------------------------------
-    VGA_Red_Ctrl    <= ACTIVE and VGA_Red;
-    VGA_Green_Ctrl  <= ACTIVE and VGA_Green;
-    VGA_Blue_Ctrl   <= ACTIVE and VGA_Blue;
-    
-    
-     -- Assign outputs
-    o_HSync <= HSync;
-    o_VSync <= VSync;
-    o_RED   <= VGA_Red_Ctrl;
-    o_BLUE  <= VGA_Blue_Ctrl;
-    o_GREEN <= VGA_Green_Ctrl;
-
 end Behavioral;
