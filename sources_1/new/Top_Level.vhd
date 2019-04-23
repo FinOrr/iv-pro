@@ -150,7 +150,9 @@ architecture Behavioral of Top_Level is
             i_Data              :   in  std_logic_vector(BPP-1 downto 0);
             i_Median_En         :   in  std_logic;
             -- OUTPUTS
-            o_Data              :   out std_logic_vector(BPP-1 downto 0)
+            o_Data              :   out std_logic_vector(BPP-1 downto 0);
+            o_Write_Adr         :   out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
+            o_Write_En          :   out std_logic
         );
     end component;
     
@@ -189,6 +191,7 @@ architecture Behavioral of Top_Level is
             Clk          : in std_logic;
             i_Pixel_Data : in std_logic_vector(BPP-1 downto 0);
             -- Outputs
+            o_Adr       : out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
             o_Active    : out std_logic; 
             o_HSync     : out std_logic;
             o_VSync     : out std_logic;
@@ -227,26 +230,54 @@ architecture Behavioral of Top_Level is
 
     -- Input Frame Buffer Signals
     -- Port A --
-    signal FB0_A_We      : std_logic := '0';
-    signal FB0_A_Adr     : std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
-    signal FB0_A_Di      : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    signal FB0_A_Do      : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal FBI_A_We      : std_logic := '0';
+    signal FBI_A_Adr     : std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
+    signal FBI_A_Di      : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal FBI_A_Do      : std_logic_vector(BPP-1 downto 0) := (others => '0');
     -- Port B --
-    signal FB0_B_We      : std_logic := '0';
-    signal FB0_B_Adr     : std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
-    signal FB0_B_Di      : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    signal FB0_B_Do      : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    
-    
-    signal UART_Send        : std_logic := '0';
+    signal FBI_B_We      : std_logic := '0';
+    signal FBI_B_Adr     : std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
+    signal FBI_B_Di      : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal FBI_B_Do      : std_logic_vector(BPP-1 downto 0) := (others => '0');    
+    -- Input Frame Buffer Signals
+    -- Port A --
+    signal FBO_A_We      : std_logic := '0';
+    signal FBO_A_Adr     : std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
+    signal FBO_A_Di      : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal FBO_A_Do      : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    -- Port B--
+    signal FBO_B_We      : std_logic := '0';
+    signal FBO_B_Adr     : std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
+    signal FBO_B_Di      : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal FBO_B_Do      : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    --------------------------------------------------
+    ---- (FBO) FRAME BUFFER OUTPUT control signal ----
+    --------------------------------------------------
+    -- Contrast filter signals
+    signal Contrast_FBO_A_Di  : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal Contrast_FBO_A_Adr : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
+    signal Contrast_FBO_A_We  : std_logic := '0';
+    signal Contrast_FBI_B_Adr : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
+    -- Threshold Filter signals
+    signal Threshold_FBO_A_Adr : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
+    signal Threshold_FBO_A_Di  : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal Threshold_FBO_A_We  : std_logic := '0';
+    -- 2D FIR signals
+    signal FIR_FBO_A_Di  : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal FIR_FBO_A_Adr : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
+    signal FIR_FBO_A_We  : std_logic := '0';
+
     signal Output_FB_Data   : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    signal Threshold        : std_logic_vector(7 downto 0) := (others => '0');
+    signal Threshold_Value  : std_logic_vector(7 downto 0) := (others => '0');
     
     signal ROM_EN           : std_logic := '0';
     signal ROM_ADR          : std_logic_vector(BPP-1 downto 0) := (others => '0');        
     signal Contrast_En      : std_logic := '0';
     signal Threshold_En     : std_logic := '0';
-    signal Median_En        : std_logic := '0';  
+    signal Median_En        : std_logic := '0'; 
+    
+    signal Kernel_Coeff     : kernel; 
+    signal Filter_SF : std_logic_vector(3 downto 0);
     
     -- Pixel data can come from the camera module OR from UART
     -- CAMERA --
@@ -257,8 +288,10 @@ architecture Behavioral of Top_Level is
     signal UART_We   : std_logic := '0';
     signal UART_Adr  : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
     signal UART_Do   : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    
+    signal UART_Send        : std_logic := '0';
+
     signal Input_Mode : std_logic := '0';
+    
 begin
     
     OV7670_RESET <= not RESET;      -- Reset active low, normal mode high
@@ -301,37 +334,39 @@ begin
             -- INPUTS       
             Clk                 => Clk_100, 
             i_Reset             => Reset,
-            i_Kernel            => OPEN,
+            i_Kernel            => Kernel_Coeff,
             i_Scaling_Factor    => Filter_SF,
-            i_Data              => 
-            i_Median_En     
+            i_Data              => FBI_B_Do,
+            i_Median_En         => Median_En,
             -- OUTPUTS      
-            o_Data          
+            o_Data              => FIR_FBO_A_Di,
+            o_Write_En          => FIR_FBO_A_We,
+            o_Write_Adr         => FIR_FBO_A_Adr
         );
         
     Contrast: Contrast_Filter
         port map (
             -- Inputs   
-            Clk         =>
-            i_Enable    =>
-            i_Data      =>
+            Clk         => Clk_100,
+            i_Enable    => Contrast_En,
+            i_Data      => FBI_B_Do,
             -- Outputs  
-            o_Data      =>
-            o_Write_Adr =>
-            o_Read_Adr  =>
-            o_Write_En  =>
+            o_Data      => Contrast_FBO_A_Di,
+            o_Write_Adr => Contrast_FBO_A_Adr,
+            o_Write_En  => Contrast_FBO_A_We,
+            o_Read_Adr  => Contrast_FBI_B_Adr
         );
         
     Threshold: Threshold_Filter
         port map (
-            Clk         =>
-            i_Enable    =>
-            i_Data      =>
-            i_Threshold =>
-            o_Read_Adr  =>
-            o_Write_Adr =>
-            o_Write_En  =>
-            o_Data      =>
+            Clk         => Clk_100,
+            i_Enable    => Threshold_En,
+            i_Data      => FBI_B_Do,
+            i_Threshold => Threshold_Value,
+            o_Read_Adr  => FBI_B_Do,
+            o_Write_Adr => Threshold_FBO_A_Adr,
+            o_Write_En  => Threshold_FBO_A_We,
+            o_Data      => Threshold_FBO_A_Di
         );
        
     Camera_Capture: OV7670_Capture
@@ -349,32 +384,33 @@ begin
             o_Do            => CAM_Do
         );
     
-    -- Frame buffer 0 : holds the unprocessed image
+    -- Frame buffer for input image (FBI) : holds the unprocessed image
     Frame_Buffer_IN : RAM_FB
         port map (         
            -- CLOCK 
            Clk     => OV7670_PCLK,
            -- PORT A
-           A_Adr   => FB0_A_Adr,
-           A_Di    => FB0_A_Di,    
-           A_We    => FB0_A_We,                     -- Port A Enable
-           A_Do    => FB0_A_Do,
+           A_Adr   => FBI_A_Adr,
+           A_Di    => FBI_A_Di,    
+           A_We    => FBI_A_We,                     -- Port A Enable
+           A_Do    => FBI_A_Do,
        -- PORT B
-           B_Adr   => FB0_B_Adr,
-           B_Di    => FB0_B_Di,
-           B_We    => FB0_B_We,
-           B_Do    => FB0_B_Do
+           B_Adr   => FBI_B_Adr,
+           B_Di    => FBI_B_Di,
+           B_We    => FBI_B_We,
+           B_Do    => FBI_B_Do
         );
         
     with Input_Mode select
-        FB0_A_Adr <= CAM_Adr when '0',
+        FBI_A_Adr <= CAM_Adr when '0',
                      UART_Adr when '1';
     with Input_Mode select
-        FB0_A_Di <= CAM_Do when '0',
+        FBI_A_Di <= CAM_Do when '0',
                     UART_Do when '1';
     with Input_Mode select
-        FB0_A_We <= CAM_We when '0',
+        FBI_A_We <= CAM_We when '0',
                     UART_We when '1';
+    
         
     
     
@@ -396,8 +432,8 @@ begin
             o_Contrast_En   => Contrast_En,
             o_Threshold_En  => Threshold_En,
             o_Median_En     => Median_En,
-            o_Threshold     => Threshold,        
-
+            o_Threshold     => Threshold_Value,        
+            
             o_TX            => UART_TX 
         );
     
@@ -406,8 +442,9 @@ begin
         port map(
             -- Input
             Clk             => Clk_25, 
-            i_Pixel_Data    => FB0_B_Do,
+            i_Pixel_Data    => FBI_B_Do,
             -- Output
+            o_Adr           => VGA_Fetch_Adr,
             o_Active        => VGA_Active,
             o_HSync         => VGA_HSYNC,
             o_VSync         => VGA_VSYNC,
