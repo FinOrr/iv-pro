@@ -4,8 +4,8 @@ set_property IOSTANDARD LVCMOS33 [get_ports Clk_100]
 create_clock -add -name sys_clk_pin -period 10.00 -waveform {0 5} [get_ports Clk_100]
  
 ## Switches
-#set_property PACKAGE_PIN V17 [get_ports {sw[0]}]					
-#	set_property IOSTANDARD LVCMOS33 [get_ports {sw[0]}]
+#set_property PACKAGE_PIN V17 [get_ports {TX_SWITCH}]					
+#	set_property IOSTANDARD LVCMOS33 [get_ports {TX_SWITCH}]
 #set_property PACKAGE_PIN V16 [get_ports {sw[1]}]					
 #	set_property IOSTANDARD LVCMOS33 [get_ports {sw[1]}]
 #set_property PACKAGE_PIN W16 [get_ports {sw[2]}]					
@@ -145,24 +145,24 @@ set_property PACKAGE_PIN U18 [get_ports RESET]
 
 
 #Pmod Header JB
-#Sch name = JB1: D5
-set_property PACKAGE_PIN A14 [get_ports {OV7670_DATA[5]}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[5]}]
-#Sch name = JB2 : D3
-set_property PACKAGE_PIN A16 [get_ports {OV7670_DATA[3]}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[3]}]
-#Sch name = JB3 : D1
-set_property PACKAGE_PIN B15 [get_ports {OV7670_DATA[1]}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[1]}]
-#Sch name = JB4: RESET
-set_property PACKAGE_PIN B16 [get_ports {OV7670_RESET}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_RESET}]
-#Sch name = JB7 : D7
-set_property PACKAGE_PIN A15 [get_ports {OV7670_DATA[7]}]					
+#Sch name = JB1 : D7
+set_property PACKAGE_PIN A14 [get_ports {OV7670_DATA[7]}]					
 	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[7]}]
+#Sch name = JB2: D5
+set_property PACKAGE_PIN A16 [get_ports {OV7670_DATA[5]}]					
+	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[5]}]
+#Sch name = JB3 : D3
+set_property PACKAGE_PIN B15 [get_ports {OV7670_DATA[3]}]					
+	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[3]}]
+#Sch name = JB4 : D1
+set_property PACKAGE_PIN B16 [get_ports {OV7670_DATA[1]}]					
+	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[1]}]
+#Sch name = JB7 : RESET
+set_property PACKAGE_PIN A15 [get_ports {OV7670_RESET}]					
+	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_RESET}]
 #Sch name = JB8 : VSYNC
-#set_property PACKAGE_PIN A17 [get_ports {OV7670_VSYNC}]					
-#	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_VSYNC}]
+set_property PACKAGE_PIN A17 [get_ports {OV7670_VSYNC}]					
+	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_VSYNC}]
 #Sch name = JB9 : PCLK
 set_property PACKAGE_PIN C15 [get_ports {OV7670_PCLK}]					
 	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_PCLK}]
@@ -173,21 +173,21 @@ set_property PACKAGE_PIN C16 [get_ports {OV7670_SCL}]
 
 
 #Pmod Header JC
-#Sch name = JC1 : DATA 4
-set_property PACKAGE_PIN K17 [get_ports {OV7670_DATA[4]}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[4]}]
-#Sch name = JC2 : Data 2
+#Sch name = JC1 : Data 0
+set_property PACKAGE_PIN K17 [get_ports {OV7670_DATA[0]}]					
+	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[0]}]
+#Sch name = JC2 : DATA 2
 set_property PACKAGE_PIN M18 [get_ports {OV7670_DATA[2]}]					
 	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[2]}]
-#Sch name = JC3 : Data 0
-set_property PACKAGE_PIN N17 [get_ports {OV7670_DATA[0]}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[0]}]
-#Sch name = JC4 : PWDN
-set_property PACKAGE_PIN P18 [get_ports {OV7670_PWDN}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_PWDN}]
-#Sch name = JC7 : Data 6
-set_property PACKAGE_PIN L17 [get_ports {OV7670_DATA[6]}]					
+#Sch name = JC3 : Data 4
+set_property PACKAGE_PIN N17 [get_ports {OV7670_DATA[4]}]					
+	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[4]}]
+#Sch name = JC4 : Data 6
+set_property PACKAGE_PIN P18 [get_ports {OV7670_DATA[6]}]					
 	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_DATA[6]}]
+#Sch name = JC7 : PWDN
+set_property PACKAGE_PIN L17 [get_ports {OV7670_PWDN}]					
+	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_PWDN}]
 #Sch name = JC8 : XCLK
 set_property PACKAGE_PIN M19 [get_ports {OV7670_XCLK}]					
 	set_property IOSTANDARD LVCMOS33 [get_ports {OV7670_XCLK}]
@@ -259,10 +259,10 @@ set_property PACKAGE_PIN R19 [get_ports VGA_VSYNC]
 
 
 ##USB-RS232 Interface
-#set_property PACKAGE_PIN B18 [get_ports RsRx]						
-	#set_property IOSTANDARD LVCMOS33 [get_ports RsRx]
-#set_property PACKAGE_PIN A18 [get_ports RsTx]						
-	#set_property IOSTANDARD LVCMOS33 [get_ports RsTx]
+set_property PACKAGE_PIN B18 [get_ports UART_RX]
+    set_property IOSTANDARD LVCMOS33 [get_ports UART_RX]
+set_property PACKAGE_PIN A18 [get_ports UART_TX]						
+	set_property IOSTANDARD LVCMOS33 [get_ports UART_TX]
 
 
 ##USB HID (PS/2)
