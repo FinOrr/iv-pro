@@ -56,14 +56,12 @@ begin
         if (rising_edge(Clk)) then
             if (i_Enable = '1') then
                 Write_En  <= '1';                           -- Enable writing to the frame buffer while processing pixels
-                for i in 0 to FRAME_PIXELS-1 loop           -- Loop through frame buffer pixels
-                    if (i_Data > i_Threshold) then          -- If the current pixel value is greater than the threshold
-                        o_Data <= (others => '1');          -- Force it to max value
-                    else                                    -- ELSE the pixel is below the threshold limit
-                        o_Data <= (others => '0');          -- so set the corresponding pixel in the output image to minimum value
-                    end if; -- end threshold check
-                end loop; -- end image pixel loop
-                
+                if (i_Data > i_Threshold) then          -- If the current pixel value is greater than the threshold
+                    o_Data <= (others => '1');          -- Force it to max value
+                else                                    -- ELSE the pixel is below the threshold limit
+                    o_Data <= (others => '0');          -- so set the corresponding pixel in the output image to minimum value
+                end if; -- end threshold check
+            
                 -- Address pointer control --
                 if (Read_Adr < FRAME_PIXELS-1) then         -- Check pixel is not the last pixel in the frame buffer
                     Read_Adr <= Read_Adr + 1;               -- Increment the address to next pixel

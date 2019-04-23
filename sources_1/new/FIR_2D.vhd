@@ -33,6 +33,7 @@ entity FIR_2D is
         -- INPUTS
         Clk                 :   in  std_logic;
         i_Reset             :   in  std_logic;
+        i_Enable            :   in  std_logic;
         i_Kernel            :   in  kernel;                         -- Input data
         i_Scaling_Factor    :   in  std_logic_vector(3 downto 0);
         i_Data              :   in  std_logic_vector(BPP-1 downto 0);
@@ -47,9 +48,8 @@ end FIR_2D;
 architecture Behavioral of FIR_2D is
 
     signal Reset        : std_logic := '0';                                                 -- Reset input, buffered
-    signal Adr_Cntr     : natural range 0 to FRAME_WIDTH-1 := 0;                            -- Counter to cycle through memory addresses    
-    signal Read_Adr     : std_logic_vector(integer(ceil(log2(real(FRAME_WIDTH))))-1 downto 0) := (others => '0');                  -- Linebuffer read address
-    signal Write_Adr    : std_logic_vector(integer(ceil(log2(real(FRAME_WIDTH))))-1 downto 0) := (others => '0');                  -- Memory write address
+    signal Read_Adr     : unsigned(LB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');                  -- Linebuffer read address
+    signal Write_Adr    : unsigned(LB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');                  -- Memory write address
          
     -- FIR Signals
     signal Pixel_Ready      : natural range 0 to 8          := 0;
@@ -87,6 +87,12 @@ architecture Behavioral of FIR_2D is
     signal LB1_Do                       : std_logic_vector(BPP-1 downto 0) := (others => '0');  -- Data in, data out
 --    signal LB1_Adr_A, LB1_Adr_B         : std_logic_vector(8 downto 0) := (others => '0');  -- Write address, read address
         
+    -- Output Frame Buffer signals
+    signal FB_Adr : unsigned(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
+    signal FB_We  : std_logic := '0';
+    signal Pipe_Delay : natural range 0 to 8 := 0;
+    signal Output_En : std_logic := '0';
+    
     -- 2D Filter uses 3 x 1D filters to create a 3x3 window
     component FIR_1D is
         port (
@@ -101,15 +107,19 @@ architecture Behavioral of FIR_2D is
     end component;
     
     component RAM_LB is
-        port(
-        -- Inputs 
+        port (
+            -- CLOCK 
             Clk     : in std_logic;                     -- RAM write port clock
-            Reset   : in std_logic;                     -- Reset to clear output
-            En      : in std_logic;                     -- Port A Enable
-            Write_En: in std_logic;                     -- Port B Enable
-            Adr     : in std_logic_vector(integer(ceil(log2(real(FRAME_WIDTH))))-1 downto 0); -- Port A (Write) Address
-            Di      : in std_logic_vector(BPP -1 downto 0); -- Port A (Write) Data In
-            Do      : out std_logic_vector(BPP -1 downto 0) -- Port B (Read) Data Out
+            -- PORT A
+            A_Adr   : in std_logic_vector(LB_ADR_BUS_WIDTH-1 downto 0);
+            A_Di    : in std_logic_vector(BPP-1 downto 0);    
+            A_We    : in std_logic;                     -- Port A Enable
+            A_Do    : out std_logic_vector(BPP-1 downto 0);
+            -- PORT B
+            B_Adr   : in std_logic_vector(LB_ADR_BUS_WIDTH-1 downto 0);
+            B_Di    : in std_logic_vector(BPP-1 downto 0);
+            B_We    : in std_logic;
+            B_Do    : out std_logic_vector(BPP-1 downto 0)
         );
     end component;
     
@@ -130,36 +140,39 @@ begin
     Filter_Kernel   <= i_Kernel;
     SF_Shift        <= i_Scaling_Factor;
     Input_Pixel     <= i_Data;
-    
+    o_Write_Adr     <= std_logic_vector(FB_Adr);
+    o_Write_En      <= FB_We;
     
     Line_Buffer0: RAM_LB
         port map (
-            -- Inputs 
+            -- CLOCK 
             Clk     => Clk,
-            Reset   => Reset,
-            -- Port A (Write)
-            En_a    => LB0_En_A,
-            Adr_a   => Write_Adr,
-            Di      => Input_Pixel,
-            -- Port B (Read)
-            En_b    => LB0_En_B,
-            Adr_b   => Read_Adr,
-            Do      => LB0_Do
+            -- PORT A
+            A_Adr   => std_logic_vector(Write_Adr),
+            A_Di    => Input_Pixel,
+            A_We    => LB0_En_A,
+            A_Do    => open,
+            -- PORT B
+            B_Adr   => std_logic_vector(Read_Adr),
+            B_Di    => (others => '0'),
+            B_We    => '0',
+            B_Do    => LB0_Do
         );
         
-    Line_Buffer1: RAM_DP
-        port map (
-            -- Inputs 
+    Line_Buffer1: RAM_LB
+        port map (       
+            -- CLOCK 
             Clk     => Clk,
-            Reset   => Reset,
-            -- Port A (Write)
-            En_a    => LB1_En_A,
-            Adr_a   => Write_Adr,
-            Di      => LB0_Do,
-            -- Port B (Read)
-            En_b    => LB1_En_B,
-            Adr_b   => Read_Adr,
-            Do      => LB1_Do
+            -- PORT A
+            A_Adr   => std_logic_vector(Write_Adr),
+            A_Di    => LB0_Do,
+            A_We    => LB1_En_A,
+            A_Do    => LB0_Do,
+            -- PORT B
+            B_Adr   => std_logic_vector(Read_Adr),
+            B_Di    => (others => '0'),
+            B_We    => '0',
+            B_Do    => LB1_Do
         );
         
     FIR0: FIR_1D
@@ -193,29 +206,46 @@ begin
             o_Data  => FIR2_Do
         );
 
-    Write_Address_Counter: process(Clk)
+    LB_Address_Control: process(Clk)
     begin
         if (rising_edge(Clk)) then
-            if (Adr_Cntr >= 319) then
-                Adr_Cntr <= 0;    
-                LB1_En_A <= '1';
-                LB1_En_B <= '1';
+            if (i_Enable = '1') then
+                if (Read_Adr >= FRAME_WIDTH-1) then
+                    Read_Adr <= (others => '0');    
+                    LB0_En_A <= '1';
+                    LB1_En_A <= '1';
+                    Write_Adr <= to_unsigned(FRAME_WIDTH-1, LB_ADR_BUS_WIDTH);
+                else
+                    Read_Adr <= Read_Adr + 1;
+                    Write_Adr <= Read_Adr - 1;
+                end if;
             else
-                Adr_Cntr <= Adr_Cntr + 1;
-            end if;
-            Write_Adr <= std_logic_vector(to_unsigned(Adr_Cntr, 9));
-            if (Adr_Cntr = 0) then
-                Read_Adr <= "100111111";
-            else
-                Read_Adr  <= std_logic_vector(to_unsigned(Adr_Cntr, 9) - 1);
+                Read_Adr <= (others => '0');
             end if;
         end if;
     end process;
     
-    Read_Address_Counter: process(Clk)
+    FB_Address_Control: process(Clk)
     begin
         if (rising_edge(Clk)) then
-        
+            if (i_Enable = '1') then
+            
+                if (Pipe_Delay = 8) then
+                    Output_En <= '1';
+                else
+                    Pipe_Delay <= Pipe_Delay + 1;
+                end if;
+                
+                if (Output_En = '1') then
+                    if (FB_Adr < FRAME_PIXELS-1) then
+                        FB_We <= '1';
+                        FB_Adr <= FB_Adr + 1;
+                    else
+                        FB_Adr <= (others => '0');
+                        FB_We <= '0';
+                    end if;
+                end if;
+            end if;
         end if;
     end process;
     

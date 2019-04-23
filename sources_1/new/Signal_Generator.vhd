@@ -30,7 +30,7 @@ begin
     Sig_Driver: Process(i_Clk)
     begin
         if rising_edge(i_Clk) then      
-            if r_Counter >= (COUNT_LIMIT - 1) then  -- Check if counter has reached the upper limit
+            if (r_Counter >= (COUNT_LIMIT - 1)) then  -- Check if counter has reached the upper limit
                 r_Counter   <= 0;                   -- Reset counter when we reach the upper limit
                 r_Pulse     <= not r_Pulse;                 -- Set the pulse to true for one clock cycle
             else                                    

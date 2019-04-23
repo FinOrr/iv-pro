@@ -73,25 +73,24 @@ architecture Behavioral of Top_Level is
             o_Coef_Adr      : out std_logic_vector(7 downto 0);                              
             o_Adr           : out std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0); -- Address 
             o_Write_En      : out std_logic;                        -- Enable the frame buffe
-            o_Read_En       : out std_logic;                        -- Enable the read port o
             o_FB_Byte       : out std_logic_vector(7 downto 0);                              
             o_Threshold     : out std_logic_vector(7 downto 0);     -- Threshold value for th
             o_TX            : out std_logic                         -- Bit to be transmitted 
         );
     end component;
     
-    component OV7670_Controller is
-        port (
-            clk    : in    STD_LOGIC;
-            resend : in    STD_LOGIC;
-            config_finished : out std_logic;
-            sioc  : out   STD_LOGIC;
-            siod  : inout STD_LOGIC;
-            reset : out   STD_LOGIC;
-            pwdn  : out   STD_LOGIC;
-            xclk  : out   STD_LOGIC
-        );
-    end component;
+--    component OV7670_Controller is
+--        port (
+--            clk    : in    STD_LOGIC;
+--            resend : in    STD_LOGIC;
+--            config_finished : out std_logic;
+--            sioc  : out   STD_LOGIC;
+--            siod  : inout STD_LOGIC;
+--            reset : out   STD_LOGIC;
+--            pwdn  : out   STD_LOGIC;
+--            xclk  : out   STD_LOGIC
+--        );
+--    end component;
     
     component Filter_ROM is
         port(
@@ -127,11 +126,9 @@ architecture Behavioral of Top_Level is
         port (
             -- Inputs
             i_Pixel_Clk     :   in  std_logic;
-            i_Clk_25        :   in  std_logic;
             i_HRef          :   in  std_logic;
             i_Pixel_Data    :   in  std_logic_vector(7 downto 0);
             i_VSync         :   in  std_logic;
-            i_Active        :   in  std_logic;
             -- Outputs
             o_We            :   out std_logic;       
             o_Adr           :   out std_logic_vector(FB_ADR_BUS_WIDTH - 1 downto 0);        
@@ -144,6 +141,7 @@ architecture Behavioral of Top_Level is
         port (
             -- INPUTS
             Clk                 :   in  std_logic;
+            i_Enable            :   in  std_logic;
             i_Reset             :   in  std_logic;
             i_Kernel            :   in  kernel;                         -- Input data
             i_Scaling_Factor    :   in  std_logic_vector(3 downto 0);
@@ -192,7 +190,6 @@ architecture Behavioral of Top_Level is
             i_Pixel_Data : in std_logic_vector(BPP-1 downto 0);
             -- Outputs
             o_Adr       : out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
-            o_Active    : out std_logic; 
             o_HSync     : out std_logic;
             o_VSync     : out std_logic;
             o_RED       : out std_logic_vector(3 downto 0);
@@ -221,7 +218,6 @@ architecture Behavioral of Top_Level is
     signal VGA_Fetch_Data   : std_logic_vector(BPP-1 downto 0);
     signal VGA_Fetch_Count  : unsigned(LB_ADR_BUS_WIDTH -1 downto 0) := to_unsigned(FRAME_WIDTH-1, LB_ADR_BUS_WIDTH);
     signal VGA_Clk_Div      : std_logic := '1';
-    signal VGA_Active       : std_logic := '0';
     
     -- Reading filter parameters from block ram
     signal Read_Filter_En   : std_logic := '0';
@@ -276,6 +272,7 @@ architecture Behavioral of Top_Level is
     signal Threshold_En     : std_logic := '0';
     signal Median_En        : std_logic := '0'; 
     
+    signal FIR_Enable       : std_logic := '0';
     signal Kernel_Coeff     : kernel; 
     signal Filter_SF : std_logic_vector(3 downto 0);
     
@@ -334,6 +331,7 @@ begin
             -- INPUTS       
             Clk                 => Clk_100, 
             i_Reset             => Reset,
+            i_Enable            => FIR_Enable,
             i_Kernel            => Kernel_Coeff,
             i_Scaling_Factor    => Filter_SF,
             i_Data              => FBI_B_Do,
@@ -363,7 +361,7 @@ begin
             i_Enable    => Threshold_En,
             i_Data      => FBI_B_Do,
             i_Threshold => Threshold_Value,
-            o_Read_Adr  => FBI_B_Do,
+            o_Read_Adr  => FBI_B_Adr,
             o_Write_Adr => Threshold_FBO_A_Adr,
             o_Write_En  => Threshold_FBO_A_We,
             o_Data      => Threshold_FBO_A_Di
@@ -373,11 +371,9 @@ begin
         port map (
             -- Inputs
             i_Pixel_Clk     => OV7670_PCLK,
-            i_Clk_25        => Clk_25,
             i_HRef          => OV7670_HREF,
             i_Pixel_Data    => OV7670_DATA,
             i_VSync         => OV7670_VSYNC,
-            i_Active        => VGA_Active,
             -- Outputs
             o_We            => CAM_We,       
             o_Adr           => CAM_Adr,        
@@ -388,7 +384,7 @@ begin
     Frame_Buffer_IN : RAM_FB
         port map (         
            -- CLOCK 
-           Clk     => OV7670_PCLK,
+           Clk     => Clk_100,
            -- PORT A
            A_Adr   => FBI_A_Adr,
            A_Di    => FBI_A_Di,    
@@ -401,6 +397,23 @@ begin
            B_Do    => FBI_B_Do
         );
         
+    Frame_Buffer_OUT: RAM_FB
+        port map (
+           -- CLOCK 
+            Clk     => Clk_100,
+            -- PORT A
+            A_Adr   => FBO_A_Adr,
+            A_Di    => FBO_A_Di,    
+            A_We    => FBO_A_We,                     -- Port A Enable
+            A_Do    => FBO_A_Do,
+        -- PORT B        
+            B_Adr   => FBO_B_Adr,
+            B_Di    => FBO_B_Di,
+            B_We    => FBO_B_We,
+            B_Do    => FBO_B_Do
+        );
+         
+        
     with Input_Mode select
         FBI_A_Adr <= CAM_Adr when '0',
                      UART_Adr when '1';
@@ -409,10 +422,7 @@ begin
                     UART_Do when '1';
     with Input_Mode select
         FBI_A_We <= CAM_We when '0',
-                    UART_We when '1';
-    
-        
-    
+                    UART_We when '1';    
     
     UART: UART_Controller
         port map (
@@ -442,10 +452,9 @@ begin
         port map(
             -- Input
             Clk             => Clk_25, 
-            i_Pixel_Data    => FBI_B_Do,
+            i_Pixel_Data    => FBO_B_Do,
             -- Output
             o_Adr           => VGA_Fetch_Adr,
-            o_Active        => VGA_Active,
             o_HSync         => VGA_HSYNC,
             o_VSync         => VGA_VSYNC,
             o_RED           => VGA_RED,

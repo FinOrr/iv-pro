@@ -21,7 +21,6 @@ entity UART_Controller is
         o_Coef_Adr      : out std_logic_vector(7 downto 0);
         o_Adr           : out std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0); -- Address of pixel value in frame buffer
         o_Write_En      : out std_logic;                        -- Enable the frame buffer to write the data value
-        o_Read_En       : out std_logic;                        -- Enable the read port on the frame buffer       
         o_FB_Byte       : out std_logic_vector(7 downto 0);
         o_Threshold     : out std_logic_vector(7 downto 0);     -- Threshold value for threshold function
         o_TX            : out std_logic                         -- Bit to be transmitted 
@@ -73,7 +72,7 @@ architecture Behavioral of UART_CONTROLLER is
 begin 
 
     o_Adr <= std_logic_vector(to_unsigned((Byte_Count), FB_ADR_BUS_WIDTH));
-
+   
     UART_RX: UART_Receiver
         generic map (
             BAUD_RATE => 115200

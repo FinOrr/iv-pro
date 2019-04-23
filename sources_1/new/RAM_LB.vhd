@@ -18,44 +18,53 @@
 ----------------------------------------------------------------------------------
 library WORK;
 use WORK.SYS_PARAM.ALL;
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 use IEEE.MATH_REAL.ALL;
 
-
 entity RAM_LB is
-    port(
-    -- Inputs 
+    port (
+        -- CLOCK 
         Clk     : in std_logic;                     -- RAM write port clock
-        Reset   : in std_logic;                     -- Reset to clear output
-        En      : in std_logic;                     -- Port A Enable
-        Write_En: in std_logic;                     -- Port B Enable
-        Adr     : in std_logic_vector(integer(ceil(log2(real(FRAME_WIDTH))))-1 downto 0); -- Port A (Write) Address
-        Di      : in std_logic_vector(BPP -1 downto 0); -- Port A (Write) Data In
-        Do      : out std_logic_vector(BPP -1 downto 0) -- Port B (Read) Data Out
+        -- PORT A
+        A_Adr   : in std_logic_vector(LB_ADR_BUS_WIDTH-1 downto 0);
+        A_Di    : in std_logic_vector(BPP-1 downto 0);    
+        A_We    : in std_logic;                     -- Port A Enable
+        A_Do    : out std_logic_vector(BPP-1 downto 0);
+        -- PORT B
+        B_Adr   : in std_logic_vector(LB_ADR_BUS_WIDTH-1 downto 0);
+        B_Di    : in std_logic_vector(BPP-1 downto 0);
+        B_We    : in std_logic;
+        B_Do    : out std_logic_vector(BPP-1 downto 0)
     );
 end RAM_LB;
  
 architecture Behavioral of RAM_LB is
 
     -- RAM Declaration
-    type RAM_LB is array (FRAME_WIDTH-1 downto 0) of std_logic_vector(BPP-1 downto 0);  -- Currently testing 8 bits per pixel, 480p    
+    type t_RAM_LB is array (FRAME_WIDTH-1 downto 0) of std_logic_vector(BPP-1 downto 0);  -- Currently testing 8 bits per pixel, 480p
+    signal RAM : t_RAM_LB := (others => (others => '0'));
     
 begin
-
-    RAM_Controller: process (Clk)
-        variable MEM : RAM_LB:= (others => (others => '0'));
+    
+    Port_A_Controller: process(Clk)
     begin
-        if (rising_edge(Clk)) then                          -- Sync on rising edge
-            if (Reset = '1') then                           -- Check if reset pressed
-                MEM := (others => (others => '0'));         -- Clear RAM contents
-            elsif (En = '1') then                            -- Check PortA Enabled
-                if (Write_En = '1') then
-                    MEM(to_integer(unsigned(Adr))) := Di; -- Store Data In at the address index
-                else
-                    Do <= MEM(to_integer(unsigned(Adr)));     -- Output the data from ram index Adr_b
-                end if;
+        if (rising_edge(Clk)) then
+            A_Do <= RAM(to_integer(unsigned(A_Adr)));
+            if (A_We = '1') then
+                RAM(to_integer(unsigned(A_Adr))) <= A_Di;
+            end if;
+        end if;
+    end process;
+    
+    Port_B_Controller: process(Clk)
+    begin
+        if (rising_edge(Clk)) then
+            B_Do <= RAM(to_integer(unsigned(B_Adr)));
+            if (B_We = '1') then
+                RAM(to_integer(unsigned(B_Adr))) <= B_Di;
             end if;
         end if;
     end process;
