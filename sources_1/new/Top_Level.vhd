@@ -32,14 +32,12 @@ entity Top_Level is
         -- Inputs
         Clk_100      :  in  std_logic;                      -- System clock
         RESET        :  in  std_logic;                      -- Reset button
-        RESEND       :  in  std_logic;
         OV7670_PCLK  :  in  std_logic;                      -- Camera PCLK
         OV7670_HREF  :  in  std_logic;   
         OV7670_DATA  :  in  std_logic_vector(7 downto 0);
         OV7670_VSYNC :  in  std_logic;
         UART_RX      :  in  std_logic;
         -- Output
-        CONFIG_LED   :  out std_logic;
         OV7670_XCLK  :  out std_logic;
         OV7670_RESET :  out std_logic;
         OV7670_PWDN  :  out std_logic;
@@ -61,20 +59,22 @@ architecture Behavioral of Top_Level is
             -- Inputs                                                                        
             Clk             : in std_logic;                         -- System clock          
             i_Reset         : in std_logic;                         -- Global reset input    
-            i_Send          : in std_logic;                         -- Trigger to start sendi
+            i_Send          : in std_logic;                         -- Trigger to start sending
             i_RX            : in std_logic;                                                  
-            i_FB_Byte       : in std_logic_vector(7 downto 0);                               
+            i_Di            : in std_logic_vector(7 downto 0);                               
             -- Outputs                     
             o_Input_Mode    : out std_logic;                                                  
+            o_Output_Mode   : out std_logic;                                                  
             o_Contrast_En   : out std_logic;                                                 
             o_Threshold_En  : out std_logic;                                                 
             o_Median_En     : out std_logic;                                                 
             o_Coef_En       : out std_logic;                                                 
-            o_Coef_Adr      : out std_logic_vector(7 downto 0);                              
-            o_Adr           : out std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0); -- Address 
-            o_Write_En      : out std_logic;                        -- Enable the frame buffe
-            o_FB_Byte       : out std_logic_vector(7 downto 0);                              
-            o_Threshold     : out std_logic_vector(7 downto 0);     -- Threshold value for th
+            o_Coef_Adr      : out std_logic_vector(3 downto 0);                              
+            o_Read_Adr      : out std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0); -- FBO read address 
+            o_Write_Adr     : out std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0); -- FBI write address 
+            o_Write_En      : out std_logic;                        -- Enable the frame buffer writing port
+            o_Do            : out std_logic_vector(7 downto 0);                              
+            o_Threshold     : out std_logic_vector(7 downto 0);     -- Threshold value for the threshold filter
             o_TX            : out std_logic                         -- Bit to be transmitted 
         );
     end component;
@@ -94,13 +94,14 @@ architecture Behavioral of Top_Level is
     
     component Filter_ROM is
         port(
-            -- Inputs 
-            Clk     : in std_logic;                     -- System Clock
-            Reset   : in std_logic;                     -- Reset to clear output
-            -- Port (Read)
-            En      : in std_logic;                     -- Port B Enable
-            Adr     : in std_logic_vector(5 downto 0); -- Port B (Read) Address
-            Do      : out std_logic_vector(7 downto 0) -- Port B (Read) Data Out
+        -- Inputs 
+            Clk       : in std_logic;                       -- System Clock
+            i_Reset   : in std_logic;                     -- Reset to clear output
+            i_En      : in std_logic;                     -- Read Enable
+            i_Adr     : in std_logic_vector(3 downto 0);  -- Read Address
+        -- Outputs
+            o_Coeff   : out KERNEL; -- Kernel coefficients output
+            o_SF      : out std_logic_vector(3 downto 0)  -- Scaling factor output
         );
     end component;
     
@@ -208,23 +209,27 @@ architecture Behavioral of Top_Level is
             o_Signal : out std_logic
         );
     end component;  
-      
-    -- Clock signals
+    
+    -----------------------------------------------------------------------------------------
+                        ----    Clocking signals    ----
+    -----------------------------------------------------------------------------------------
     signal Clk_25   :   std_logic := '0';       -- 25MHz clock, used to drive VGA display
     signal Clk_50   :   std_logic := '0';       -- 50MHz clock, used to drive camera
-    
-    -- Data captured by the camera is fed directly into the VGA display
-    signal VGA_Fetch_Adr    : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
-    signal VGA_Fetch_Data   : std_logic_vector(BPP-1 downto 0);
-    signal VGA_Fetch_Count  : unsigned(LB_ADR_BUS_WIDTH -1 downto 0) := to_unsigned(FRAME_WIDTH-1, LB_ADR_BUS_WIDTH);
-    signal VGA_Clk_Div      : std_logic := '1';
-    
-    -- Reading filter parameters from block ram
-    signal Read_Filter_En   : std_logic := '0';
-    signal Read_Filter_Adr  : std_logic_vector(5 downto 0) := (others => '0');
-    signal Read_Filter_Coef : std_logic_vector(7 downto 0) := (others => '0');
-
-    -- Input Frame Buffer Signals
+    -----------------------------------------------------------------------------------------
+                            ---- VGA Interfacing signals ----
+    -----------------------------------------------------------------------------------------                            
+    signal VGA_Adr  : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
+    signal VGA_Di   : std_logic_vector(BPP-1 downto 0);
+    -----------------------------------------------------------------------------------------
+                            ---- FILTER COEFFICIENT ROM signals ----
+    -----------------------------------------------------------------------------------------
+    signal ROM_En        : std_logic := '0';
+    signal ROM_Adr       : std_logic_vector(3 downto 0) := (others => '0');  
+    signal ROM_SF        : std_logic_vector(3 downto 0) := (others => '0'); -- Scaling factor to apply to 2D_FIR
+    signal ROM_Coeff     : KERNEL := (others => (others => "0"));           -- 3x3 kernel to apply to 2D FIR, read from filter ROM
+    -----------------------------------------------------------------------------------------
+                              ---- (FBI) Input Frame Buffer's Signals ----
+    -----------------------------------------------------------------------------------------
     -- Port A --
     signal FBI_A_We      : std_logic := '0';
     signal FBI_A_Adr     : std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
@@ -235,7 +240,9 @@ architecture Behavioral of Top_Level is
     signal FBI_B_Adr     : std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
     signal FBI_B_Di      : std_logic_vector(BPP-1 downto 0) := (others => '0');
     signal FBI_B_Do      : std_logic_vector(BPP-1 downto 0) := (others => '0');    
-    -- Input Frame Buffer Signals
+    -----------------------------------------------------------------------------------------
+                        ---- (FBO) FRAME BUFFER OUTPUT's control signal ----
+    -----------------------------------------------------------------------------------------
     -- Port A --
     signal FBO_A_We      : std_logic := '0';
     signal FBO_A_Adr     : std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
@@ -246,48 +253,49 @@ architecture Behavioral of Top_Level is
     signal FBO_B_Adr     : std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0) := (others => '0');
     signal FBO_B_Di      : std_logic_vector(BPP-1 downto 0) := (others => '0');
     signal FBO_B_Do      : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    --------------------------------------------------
-    ---- (FBO) FRAME BUFFER OUTPUT control signal ----
-    --------------------------------------------------
-    -- Contrast filter signals
+    -----------------------------------------------------------------------------------------
+                        ---- Contrast filter signals ----
+    -----------------------------------------------------------------------------------------
+    signal Contrast_En      : std_logic := '0';             -- Set active filter to Contrast Stretching when high
     signal Contrast_FBO_A_Di  : std_logic_vector(BPP-1 downto 0) := (others => '0');
     signal Contrast_FBO_A_Adr : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
     signal Contrast_FBO_A_We  : std_logic := '0';
     signal Contrast_FBI_B_Adr : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
-    -- Threshold Filter signals
+    -----------------------------------------------------------------------------------------
+                        ---- Threshold Filter signals ----
+    -----------------------------------------------------------------------------------------
+    signal Threshold_En     : std_logic := '0';             -- Set active filter to thresholding function
     signal Threshold_FBO_A_Adr : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
     signal Threshold_FBO_A_Di  : std_logic_vector(BPP-1 downto 0) := (others => '0');
     signal Threshold_FBO_A_We  : std_logic := '0';
-    -- 2D FIR signals
+    signal Threshold_Value     : std_logic_vector(7 downto 0) := (others => '0');
+    -----------------------------------------------------------------------------------------
+                            ---- 2D FIR signals ----
+    -----------------------------------------------------------------------------------------
     signal FIR_FBO_A_Di  : std_logic_vector(BPP-1 downto 0) := (others => '0');
     signal FIR_FBO_A_Adr : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
     signal FIR_FBO_A_We  : std_logic := '0';
-
-    signal Output_FB_Data   : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    signal Threshold_Value  : std_logic_vector(7 downto 0) := (others => '0');
-    
-    signal ROM_EN           : std_logic := '0';
-    signal ROM_ADR          : std_logic_vector(BPP-1 downto 0) := (others => '0');        
-    signal Contrast_En      : std_logic := '0';
-    signal Threshold_En     : std_logic := '0';
-    signal Median_En        : std_logic := '0'; 
-    
-    signal FIR_Enable       : std_logic := '0';
-    signal Kernel_Coeff     : kernel; 
-    signal Filter_SF : std_logic_vector(3 downto 0);
-    
-    -- Pixel data can come from the camera module OR from UART
-    -- CAMERA --
-    signal CAM_We   : std_logic := '0';
-    signal CAM_Adr  : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
-    signal CAM_Do   : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    -- UART --
-    signal UART_We   : std_logic := '0';
-    signal UART_Adr  : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
-    signal UART_Do   : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    signal UART_Send        : std_logic := '0';
-
-    signal Input_Mode : std_logic := '0';
+    signal Median_En     : std_logic := '0';             -- Set active filter to Median Filter (when 1)
+    signal FIR_Enable       : std_logic := '0';             -- Enable signal to start the FIR filter
+    -----------------------------------------------------------------------------------------
+                            ---- Camera control signals ----
+            -- Pixel data can come from the camera module OR from UART --
+    -----------------------------------------------------------------------------------------
+    signal CAM_We   : std_logic := '0';                                                     -- Camera frame buffer write enable
+    signal CAM_Adr  : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');     -- Camera frame buffer write address            
+    signal CAM_Do   : std_logic_vector(BPP-1 downto 0) := (others => '0');                  -- Camera pixel data
+    -----------------------------------------------------------------------------------------
+                            ---- UART control signals ----
+            -- Pixel data can come from the camera module OR from UART --
+    -----------------------------------------------------------------------------------------
+    signal UART_Write_Adr   : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');    -- FB address to write received data to
+    signal UART_Read_Adr    : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');    -- FB address to read transmission data from
+    signal UART_Di          : std_logic_vector(BPP-1 downto 0) := (others => '0');                 -- UART <= FB connection
+    signal UART_Do          : std_logic_vector(BPP-1 downto 0) := (others => '0');                 -- UART => FB connection
+    signal UART_Send        : std_logic := '0';        -- Pulses high to start UART byte transmission
+    signal UART_We          : std_logic := '0';      -- FBI write enable
+    signal Input_Mode       : std_logic := '0';      -- Set by UART command, [0: capture from camera]    [1 : use input from uart data]
+    signal Output_Mode      : std_logic := '0';      -- Set by UART command, [0: output to VGA display]  [1 : send image over UART]
     
 begin
     
@@ -318,12 +326,13 @@ begin
    ROM: Filter_ROM
         port map (
         -- Inputs 
-            Clk    => Clk_100, 
-            Reset  => RESET,
-         -- Port (Read)
-            En     => Read_Filter_En,
-            Adr    => Read_Filter_Adr,
-            Do     => Read_Filter_Coef
+            Clk     => Clk_100,
+            i_Reset => RESET,
+            i_En    => ROM_En,
+            i_Adr   => ROM_Adr,
+        -- Outputs  => 
+            o_Coeff => ROM_Coeff,
+            o_SF    => ROM_SF
         );
        
     Filter_2D: FIR_2D
@@ -332,8 +341,8 @@ begin
             Clk                 => Clk_100, 
             i_Reset             => Reset,
             i_Enable            => FIR_Enable,
-            i_Kernel            => Kernel_Coeff,
-            i_Scaling_Factor    => Filter_SF,
+            i_Kernel            => ROM_Coeff,
+            i_Scaling_Factor    => ROM_SF,
             i_Data              => FBI_B_Do,
             i_Median_En         => Median_En,
             -- OUTPUTS      
@@ -413,17 +422,27 @@ begin
             B_Do    => FBO_B_Do
         );
          
-        
+    -- Input controller
     with Input_Mode select
-        FBI_A_Adr <= CAM_Adr when '0',
-                     UART_Adr when '1';
+        FBI_A_Adr <= CAM_Adr        when '0',
+                     UART_Write_Adr when '1';
     with Input_Mode select
-        FBI_A_Di <= CAM_Do when '0',
+        FBI_A_Di <= CAM_Do  when '0',
                     UART_Do when '1';
     with Input_Mode select
-        FBI_A_We <= CAM_We when '0',
-                    UART_We when '1';    
+        FBI_A_We <= CAM_We  when '0',
+                    UART_We when '1';
     
+    
+    
+    -- Output controller
+    with Output_Mode select
+        FBO_B_Adr <= VGA_Adr        when '0',
+                     UART_Read_Adr  when '1';
+    with Output_Mode select
+        FBO_B_Do  <= VGA_Di  when '0',
+                     UART_Di when '1';             
+  
     UART: UART_Controller
         port map (
             -- Inputs
@@ -431,14 +450,16 @@ begin
             i_Reset         => RESET,
             i_Send          => UART_Send,
             i_RX            => UART_RX,
-            i_FB_Byte       => Output_FB_Data,
+            i_Di            => UART_Di,
             -- Outputs      
             o_Input_Mode    => Input_Mode,
-            o_Adr           => UART_Adr,
+            o_Output_Mode   => Output_Mode,
+            o_Write_Adr     => UART_Write_Adr,
+            o_Read_Adr      => UART_Read_Adr,
             o_Coef_En       => ROM_En,
             o_Coef_Adr      => ROM_Adr,
             o_Write_En      => UART_We,
-            o_FB_Byte       => UART_Do,
+            o_Do            => UART_Do,
             o_Contrast_En   => Contrast_En,
             o_Threshold_En  => Threshold_En,
             o_Median_En     => Median_En,
@@ -452,9 +473,9 @@ begin
         port map(
             -- Input
             Clk             => Clk_25, 
-            i_Pixel_Data    => FBO_B_Do,
+            i_Pixel_Data    => VGA_Di,
             -- Output
-            o_Adr           => VGA_Fetch_Adr,
+            o_Adr           => VGA_Adr,
             o_HSync         => VGA_HSYNC,
             o_VSync         => VGA_VSYNC,
             o_RED           => VGA_RED,

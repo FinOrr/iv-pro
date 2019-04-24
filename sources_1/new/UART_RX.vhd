@@ -63,7 +63,7 @@ begin
                     if (Clk_Counter = (Clks_Per_Bit - 1) / 2) then      -- Wait until the middle of the bit
                         if (RX_Data = '0') then                         -- If the start bit is still low
                             Clk_Counter <= 0;                           -- Reset clock counter, now for each Clks_Per_Bit period, the middle of the data bit is sampled
-                            STATE <= DATA_BIT;                          -- Stop bit is detected, move to reading data bit
+                            STATE <= DATA_BIT;                          -- Start bit is detected, move to reading data bit
                         else
                             STATE <= IDLE;                              -- The stop bit was not steady, reset to idle state
                         end if;

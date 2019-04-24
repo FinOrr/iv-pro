@@ -39,4 +39,8 @@ package SYS_PARAM is
     constant LB_ADR_BUS_WIDTH   : natural := integer(ceil(log2(real(FRAME_WIDTH - 1))));
     constant FB_ADR_BUS_WIDTH   : natural := integer(ceil(log2(real(FRAME_PIXELS - 1))));
     
+-- Filter Kernel Parameters
+    constant KERNEL_WIDTH : natural := 3;
+    constant COEFF_WIDTH  : natural := 8;
+    
 end package;

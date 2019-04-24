@@ -11,17 +11,19 @@ entity UART_Controller is
         i_Reset         : in std_logic;                         -- Global reset input
         i_Send          : in std_logic;                         -- Trigger to start sending frame buffer
         i_RX            : in std_logic;
-        i_FB_Byte       : in std_logic_vector(7 downto 0);
+        i_Di            : in std_logic_vector(7 downto 0);
         -- Outputs
         o_Input_Mode    : out std_logic;
+        o_Output_Mode   : out std_logic;
         o_Contrast_En   : out std_logic;
         o_Threshold_En  : out std_logic;
         o_Median_En     : out std_logic;
         o_Coef_En       : out std_logic;
-        o_Coef_Adr      : out std_logic_vector(7 downto 0);
-        o_Adr           : out std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0); -- Address of pixel value in frame buffer
+        o_Coef_Adr      : out std_logic_vector(3 downto 0);
+        o_Read_Adr      : out std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0); -- Address of pixel value in frame buffer
+        o_Write_Adr     : out std_logic_vector(FB_ADR_BUS_WIDTH -1 downto 0); -- Address of pixel value in frame buffer
         o_Write_En      : out std_logic;                        -- Enable the frame buffer to write the data value
-        o_FB_Byte       : out std_logic_vector(7 downto 0);
+        o_Do            : out std_logic_vector(7 downto 0);
         o_Threshold     : out std_logic_vector(7 downto 0);     -- Threshold value for threshold function
         o_TX            : out std_logic                         -- Bit to be transmitted 
     );
@@ -54,10 +56,11 @@ architecture Behavioral of UART_CONTROLLER is
             o_TX_Finish : out std_logic                     -- Signal that byte has been transmitted
         );
     end component;
-    signal Coef_Adr     : std_logic_vector(7 downto 0) := (others => '0');
+    
+    signal Coef_Adr     : std_logic_vector(3 downto 0) := (others => '0');
     signal Coef_En      : std_logic := '0';
-    signal Adr          : unsigned(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');     -- RAM address
-    signal Byte_Count   : natural range 0 to FRAME_PIXELS := 0;                         -- Number of received bytes
+    signal Write_Adr    : unsigned(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');     -- Number of received bytes
+    signal Read_Adr     : unsigned(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
     signal CMD_Sent     : std_logic := '0';                                             -- filter configured flag
     
     signal RX_Finish    : std_logic := '0';
@@ -69,10 +72,18 @@ architecture Behavioral of UART_CONTROLLER is
     signal TX_Finish    : std_logic := '0';
     signal TX_Byte      : std_logic_vector(7 downto 0) := (others => '0');
     
+    signal Input_Mode   : std_logic := '0';
+    signal Output_Mode  : std_logic := '0';
+    
 begin 
 
-    o_Adr <= std_logic_vector(to_unsigned((Byte_Count), FB_ADR_BUS_WIDTH));
-   
+    o_Write_Adr <= std_logic_vector(Write_Adr);
+    o_Read_Adr  <= std_logic_vector(Read_Adr);
+    o_Coef_Adr  <= Coef_Adr;
+    o_Coef_En   <= Coef_En;
+    o_Input_Mode <= Input_Mode;
+    o_Output_Mode <= Output_Mode;
+    
     UART_RX: UART_Receiver
         generic map (
             BAUD_RATE => 115200
@@ -102,11 +113,19 @@ begin
         if (rising_edge(Clk)) then
             if (TX_Active = '0') then
                 if (RX_Finish = '1') then     -- If transmitter is sent
-                    TX_Byte <= i_FB_Byte;     -- Load pixel value to transmitter
-                    TX_Ready <= '1';          -- Stop transmitter
-                else
-                    TX_Ready <= '0';          -- Wait for byte to be sent before loading a new one
-               end if; -- RX Finish check
+                    if (i_Send = '1') then
+                        if (Read_Adr >= FRAME_PIXELS-1) then
+                            Read_Adr <= Read_Adr + 1;
+                            TX_Byte <= i_Di;     -- Load pixel value to transmitter
+                            TX_Ready <= '1';          -- Stop transmitter
+                        else
+                            Read_Adr <= (others => '0');
+                            TX_Ready <= '0';
+                        end if;
+                    else
+                        TX_Ready <= '0';          -- Wait for byte to be sent before loading a new one
+                    end if;
+                end if; -- RX Finish check
             end if; -- TX Active check
         end if; -- clock edge check
     end process;
@@ -117,10 +136,11 @@ begin
             if (TX_Active = '0') then         -- If transmitter if inactive
                 if (RX_Finish = '1') then     -- If byte has been received
                     if (CMD_Sent = '0') then    -- First command bytes haven't been received
-                        Byte_Count <= Byte_Count + 1;
-                        case Byte_Count is
-                            when 0 =>                           -- Filter type CMD byte
-                                o_Input_Mode <= RX_Byte(7);     -- [7] = '0': use camera input.     [7] = '1': use UART values
+                        Write_Adr <= Write_Adr + 1;
+                        case Write_Adr is
+                            when "00000000000000000" =>                           -- Filter type CMD byte
+                                Input_Mode <= RX_Byte(7);     -- [7] = '0': use camera input.     [7] = '1': use UART values
+                                Output_Mode <= RX_Byte(6);    -- [6] = '0' use VGA display.       [6] = '1' transmit over UART
                                 if (RX_Byte(3 downto 0) = x"0") then   -- WINDOW OPERATION
                                     o_Contrast_En <= '0';       -- Disable Contrast stretching filter
                                     o_Threshold_En <= '0';      -- Disable thresholding filter
@@ -142,25 +162,25 @@ begin
                                     o_Threshold_En <= '0';      -- Disable thresholding filter
                                     o_Median_En <= '0';         -- Disable median filter
                                 end if;
-                            when 1 =>       -- Filter ROM adr
-                                o_Coef_Adr <= RX_Byte;
-                                o_Coef_En  <= '1';
-                                Byte_Count <= Byte_Count + 1;
-                            when 2 =>
+                            when "00000000000000001" =>       -- Filter ROM adr
+                                Coef_Adr <= RX_Byte(3 downto 0);
+                                Coef_En  <= '1';
+                                Write_Adr <= Write_Adr + 1;
+                            when "00000000000000010" =>
                                 o_Threshold <= RX_Byte;
-                                o_Coef_En <= '0';
+                                Coef_En <= '0';
                                 CMD_Sent <= '1';
-                                Byte_Count <= 0;
+                                Write_Adr <= (others => '0');
                             when others =>
                         end case;
                     else                            -- Receiving data byte
-                        o_FB_Byte <= RX_Byte;     -- Load the received byte to frame buffer Data In bus
+                        o_Do <= RX_Byte;            -- Load the received byte to frame buffer Data In bus
                         o_Write_En <= '1';          -- Enable writing to input frame buffer                       
-                        if (Byte_Count = FRAME_PIXELS - 1) then     -- check if last pixel value in frame buffer
-                            Byte_Count <= 0;                        -- reset byte counter
+                        if (Write_Adr = FRAME_PIXELS - 1) then     -- check if last pixel value in frame buffer
+                            Write_Adr <= (others => '0');           -- reset byte counter
                             CMD_Sent <= '0';                        -- reset CMD_Sent flag
                         else                                        -- ELSE the frame buffer is not full yet
-                            Byte_Count <= Byte_Count + 1;           -- Increment the byte counter
+                            Write_Adr <= Write_Adr + 1;           -- Increment the byte counter
                         end if;                                     -- end of frame buffer check
                     end if;                                         -- end commands received check
                 else
