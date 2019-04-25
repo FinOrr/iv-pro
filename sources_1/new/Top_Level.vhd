@@ -422,26 +422,55 @@ begin
             B_Do    => FBO_B_Do
         );
          
-    -- Input controller
-    with Input_Mode select
-        FBI_A_Adr <= CAM_Adr        when '0',
-                     UART_Write_Adr when '1';
-    with Input_Mode select
-        FBI_A_Di <= CAM_Do  when '0',
-                    UART_Do when '1';
-    with Input_Mode select
-        FBI_A_We <= CAM_We  when '0',
-                    UART_We when '1';
-    
-    
-    
-    -- Output controller
-    with Output_Mode select
-        FBO_B_Adr <= VGA_Adr        when '0',
-                     UART_Read_Adr  when '1';
-    with Output_Mode select
-        FBO_B_Do  <= VGA_Di  when '0',
-                     UART_Di when '1';             
+
+    -------------------------------------------------
+    -----  Filters => Frame Buffer connections  -----
+    -------------------------------------------------
+    Filter_Controller: process(Clk_100)
+    begin
+        if (rising_edge(Clk_100)) then
+            --------------------------------------
+            --- Filter Output -> Frame Buffer  ---
+            --------------------------------------
+            if (Contrast_En = '1') then
+                FBO_A_Di    <= Contrast_FBO_A_Di;
+                FBO_A_Adr   <= Contrast_FBO_A_Adr;
+                FBO_A_We    <= Contrast_FBO_A_We;
+            elsif (Threshold_En = '1') then
+                FBO_A_Di    <= Threshold_FBO_A_Di;
+                FBO_A_Adr   <= Threshold_FBO_A_Adr;
+                FBO_A_We    <= Threshold_FBO_A_We;
+            else
+                FBO_A_Di    <= FIR_FBO_A_Di; 
+                FBO_A_Adr   <= FIR_FBO_A_Adr;
+                FBO_A_We    <= FIR_FBO_A_We;
+            end if;
+            
+            --------------------------------------
+            ------  Data Input Controller   ------
+            --------------------------------------
+            if (Input_Mode = '0') then
+                FBI_A_Adr   <= CAM_Adr;
+                FBI_A_Di    <= CAM_Do;
+                FBI_A_We    <= CAM_We;
+            else
+                FBI_A_Adr   <= UART_Write_Adr;
+                FBI_A_Di    <= UART_Do;
+                FBI_A_We    <= UART_We;
+            end if;
+            
+            --------------------------------------
+            ------  Data Output Controller  ------
+            --------------------------------------
+            if (Output_Mode = '0') then
+                FBO_B_Adr   <= VGA_Adr;
+                VGA_Di      <= FBO_B_Do;
+            else
+                FBO_B_Adr   <= UART_Read_Adr;
+                UART_Di     <= FBO_B_Do;
+            end if;
+        end if; -- end clock edge check
+    end process;          
   
     UART: UART_Controller
         port map (

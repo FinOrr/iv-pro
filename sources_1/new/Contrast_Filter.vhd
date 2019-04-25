@@ -79,26 +79,22 @@ begin
             if (i_Enable = '1') then
                 
                 if (Limits_Set = '0') then
-                    for i in 0 to 2000-1 loop
-                        if (unsigned(i_Data) < Min_Val) then
-                            Min_Val <= unsigned(i_Data);
-                        elsif (unsigned(i_Data) > Max_Val) then
-                            Max_Val <= unsigned(i_Data);
-                        end if;
-                    end loop;
+                    if (unsigned(i_Data) < Min_Val) then
+                        Min_Val <= unsigned(i_Data);
+                    elsif (unsigned(i_Data) > Max_Val) then
+                        Max_Val <= unsigned(i_Data);
+                    end if;
                 end if;
                 
                 if (Limits_Set = '1') then
-                    for i in 0 to 2000-1 loop
-                        if (unsigned(i_Data) <= Min_Val) then
-                            Data_Out <= (others => '0');
-                        elsif (unsigned(i_Data) >= Max_Val) then
-                            Data_Out <= (others => '1');
-                        else
-                            Shift_Down <= (unsigned(i_Data) - Min_Val);                 -- Pipeline contrast stetching,     STEP 1: shift the pixel range to start at 0
-                            Data_Out <= std_logic_vector(Shift_Down * Scaling_Factor);  --  STEP 2: scale range of value to use all 256 values
-                        end if;
-                    end loop;
+                    if (unsigned(i_Data) <= Min_Val) then
+                        Data_Out <= (others => '0');
+                    elsif (unsigned(i_Data) >= Max_Val) then
+                        Data_Out <= (others => '1');
+                    else
+                        Shift_Down <= (unsigned(i_Data) - Min_Val);                 -- Pipeline contrast stetching,     STEP 1: shift the pixel range to start at 0
+                        Data_Out <= std_logic_vector(Shift_Down * Scaling_Factor);  --  STEP 2: scale range of value to use all 256 values
+                    end if;
                 end if; -- end boundary set check
             end if; -- end enable input check
         end if; -- end clock edge check

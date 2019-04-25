@@ -30,6 +30,8 @@ architecture Behavioral of OV7670_Capture is
     signal Write_En     :   std_logic := '0';
     signal Sample_Col   :   std_logic := '1';
     signal Sample_Row   :   std_logic := '0';
+    signal VSync_0      :   std_logic := '0';
+    signal VSync_1      :   std_logic := '0';
     
 begin
     
@@ -61,8 +63,12 @@ begin
             end if;
         end if;
                 
-        if (rising_edge(i_VSync)) then
-            Sample_Row <= not Sample_Row;
+        if (rising_edge(Pixel_Clk)) then
+            VSync_0 <= i_Vsync;
+            VSync_1 <= Vsync_0;
+            if (VSync_0 = '1' and VSync_1 = '0') then    -- VSYNC rising edge
+                Sample_Row <= not Sample_Row;
+            end if;
         end if;
     end process;
         

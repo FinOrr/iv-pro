@@ -167,7 +167,7 @@ begin
             A_Adr   => std_logic_vector(Write_Adr),
             A_Di    => LB0_Do,
             A_We    => LB1_En_A,
-            A_Do    => LB0_Do,
+            A_Do    => open,
             -- PORT B
             B_Adr   => std_logic_vector(Read_Adr),
             B_Di    => (others => '0'),

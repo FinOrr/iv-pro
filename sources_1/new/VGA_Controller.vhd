@@ -21,9 +21,6 @@ entity VGA_Controller is
 end VGA_Controller;
 
 architecture Behavioral of VGA_Controller is
- 
-    -- Pixel clock, in this case 100 MHz
-    signal Pixel_Clk : std_logic;
     
     -- The active signal is used to signal the active region of the screen (when not blank)
     signal ACTIVE  : std_logic_vector(3 downto 0) := x"0";
@@ -57,7 +54,7 @@ begin
     o_RED   <= VGA_Red_Ctrl;
     o_BLUE  <= VGA_Blue_Ctrl;
     o_GREEN <= VGA_Green_Ctrl;
-    Pixel_Clk <= Clk;
+    o_Adr   <= std_logic_vector(Adr);
      
     -- Active signal is high when drawing inside the active frame region
     ACTIVE <= "1111" when (h_cntr < FRAME_WIDTH) and (v_cntr < FRAME_HEIGHT) else "0000";
@@ -75,9 +72,9 @@ begin
     VGA_Green   <= i_Pixel_Data(7 downto 4);
     VGA_Blue    <= i_Pixel_Data(7 downto 4);
     
-    Address_Fetch: process(Pixel_Clk)
+    Address_Fetch: process(Clk)
     begin
-        if (rising_edge(Pixel_Clk)) then
+        if (rising_edge(Clk)) then
             if (Adr = FRAME_PIXELS-1) then
                 Adr <= (others => '0');
             else
@@ -86,9 +83,9 @@ begin
         end if;
     end process;
     
-    Horizontal_Counter: process (pixel_clk)
+    Horizontal_Counter: process (Clk)
     begin
-        if (rising_edge(pixel_clk)) then
+        if (rising_edge(Clk)) then
             if (h_cntr = (H_MAX - 1)) then
                 h_cntr <= (others =>'0');
             else
@@ -97,9 +94,9 @@ begin
         end if;
     end process;
 
-    Vertical_Counter: process (pixel_clk)
+    Vertical_Counter: process (Clk)
     begin
-        if (rising_edge(pixel_clk)) then
+        if (rising_edge(Clk)) then
             if ((h_cntr = (H_MAX - 1)) and (v_cntr = (V_MAX - 1))) then
                 v_cntr <= (others =>'0');
             elsif (h_cntr = (H_MAX - 1)) then
@@ -109,9 +106,9 @@ begin
     end process;
 
      -- Horizontal sync
-    HSync_Generator: process (pixel_clk)
+    HSync_Generator: process (Clk)
     begin
-        if (rising_edge(pixel_clk)) then
+        if (rising_edge(Clk)) then
             if (h_cntr >= (H_FP + FRAME_WIDTH - 1)) and (h_cntr < (H_FP + FRAME_WIDTH + H_SP - 1)) then
                 HSync <= H_POL;
             else
@@ -121,9 +118,9 @@ begin
     end process;
 
     -- Vertical sync
-    VSync_Generator: process (pixel_clk)
+    VSync_Generator: process (Clk)
     begin
-        if (rising_edge(pixel_clk)) then
+        if (rising_edge(Clk)) then
             if (v_cntr >= (V_FP + FRAME_HEIGHT - 1)) and (v_cntr < (V_FP + FRAME_HEIGHT + V_SP - 1)) then
                 VSync <= V_POL;
             else
