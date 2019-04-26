@@ -28,6 +28,7 @@ use IEEE.NUMERIC_STD.ALL;
 entity Bitonic_Sorter is
     port (
         -- Inputs
+        Clk     : in std_logic;
         Value_A : in unsigned(BPP-1 downto 0);      -- Argument value 1
         Value_B : in unsigned(BPP-1 downto 0);      -- Argument value 2
         -- Outputs
@@ -40,14 +41,16 @@ architecture Behavioral of Bitonic_Sorter is
 
 begin
     -- Compare values, swap if they're the wrong way around
-    Comparator: process(Value_A, Value_B)
+    Comparator: process(Clk)
     begin
-        if (Value_A < Value_B) then
-            Lesser <= Value_A;
-            Greater <= Value_B;
-        else
-            Lesser <= Value_B;
-            Greater <= Value_A;
+        if (rising_edge(Clk)) then
+            if (Value_A < Value_B) then
+                Lesser <= Value_A;
+                Greater <= Value_B;
+            else
+                Lesser <= Value_B;
+                Greater <= Value_A;
+            end if;
         end if;
     end process;
     

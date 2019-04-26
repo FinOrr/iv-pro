@@ -47,9 +47,9 @@ end FIR_2D;
 
 architecture Behavioral of FIR_2D is
 
-    signal Reset        : std_logic := '0';                                                 -- Reset input, buffered
-    signal Read_Adr     : unsigned(LB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');                  -- Linebuffer read address
-    signal Write_Adr    : unsigned(LB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');                  -- Memory write address
+    signal Reset           : std_logic := '0';                                                 -- Reset input, buffered
+    signal LB_Read_Adr     : unsigned(LB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');                  -- Linebuffer read address
+    signal LB_Write_Adr    : unsigned(LB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');                  -- Memory write address
          
     -- FIR Signals
     signal Pixel_Ready      : natural range 0 to 8          := 0;
@@ -90,8 +90,9 @@ architecture Behavioral of FIR_2D is
     -- Output Frame Buffer signals
     signal FB_Adr : unsigned(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
     signal FB_We  : std_logic := '0';
-    signal Pipe_Delay : natural range 0 to 8 := 0;
+    signal Pipe_Delay_Counter : natural range 0 to (3*(FRAME_WIDTH-1))+11 := 0;
     signal Output_En : std_logic := '0';
+    signal Line_Counter : natural range 0 to 239 := 0;
     
     -- 2D Filter uses 3 x 1D filters to create a 3x3 window
     component FIR_1D is
@@ -126,6 +127,7 @@ architecture Behavioral of FIR_2D is
     component Bitonic_Sorter is
         port (
             -- Inputs
+            Clk     : in std_logic;
             Value_A : in unsigned(BPP-1 downto 0);
             Value_B : in unsigned(BPP-1 downto 0);
             -- Outputs
@@ -148,12 +150,12 @@ begin
             -- CLOCK 
             Clk     => Clk,
             -- PORT A
-            A_Adr   => std_logic_vector(Write_Adr),
+            A_Adr   => std_logic_vector(LB_Write_Adr),
             A_Di    => Input_Pixel,
             A_We    => LB0_En_A,
             A_Do    => open,
             -- PORT B
-            B_Adr   => std_logic_vector(Read_Adr),
+            B_Adr   => std_logic_vector(LB_Read_Adr),
             B_Di    => (others => '0'),
             B_We    => '0',
             B_Do    => LB0_Do
@@ -164,12 +166,12 @@ begin
             -- CLOCK 
             Clk     => Clk,
             -- PORT A
-            A_Adr   => std_logic_vector(Write_Adr),
+            A_Adr   => std_logic_vector(LB_Write_Adr),
             A_Di    => LB0_Do,
             A_We    => LB1_En_A,
             A_Do    => open,
             -- PORT B
-            B_Adr   => std_logic_vector(Read_Adr),
+            B_Adr   => std_logic_vector(LB_Read_Adr),
             B_Di    => (others => '0'),
             B_We    => '0',
             B_Do    => LB1_Do
@@ -210,34 +212,39 @@ begin
     begin
         if (rising_edge(Clk)) then
             if (i_Enable = '1') then
-                if (Read_Adr >= FRAME_WIDTH-1) then
-                    Read_Adr <= (others => '0');    
-                    LB0_En_A <= '1';
-                    LB1_En_A <= '1';
-                    Write_Adr <= to_unsigned(FRAME_WIDTH-1, LB_ADR_BUS_WIDTH);
+                if (Pipe_Delay_Counter = 3 * (FRAME_WIDTH-1) + 11) then
+                    if (LB_Read_Adr >= FRAME_WIDTH-1) then
+                        LB_Read_Adr <= (others => '0');    
+                        LB0_En_A <= '1';
+                        LB1_En_A <= '1'; 
+                        if (Line_Counter = 319) then
+                            Line_Counter <= 0;
+                        else
+                            Line_Counter <= Line_Counter + 1;
+                        end if;
+                    else
+                        LB_Read_Adr <= LB_Read_Adr + 1;
+                    end if;
                 else
-                    Read_Adr <= Read_Adr + 1;
-                    Write_Adr <= Read_Adr - 1;
+                    LB_Read_Adr <= (others => '0');
                 end if;
             else
-                Read_Adr <= (others => '0');
+                Pipe_Delay_Counter <= Pipe_Delay_Counter + 1;
             end if;
+            LB_Write_Adr <= LB_Read_Adr;
         end if;
     end process;
     
+    ------------------------------------------------------
+    -------         FRAME BUFFER CONTROLLER         ------
+    ------------------------------------------------------
     FB_Address_Control: process(Clk)
     begin
         if (rising_edge(Clk)) then
             if (i_Enable = '1') then
-            
-                if (Pipe_Delay = 8) then
-                    Output_En <= '1';
-                else
-                    Pipe_Delay <= Pipe_Delay + 1;
-                end if;
-                
+                -- If the initial loading of the pipelines is complete
                 if (Output_En = '1') then
-                    if (FB_Adr < FRAME_PIXELS-1) then
+                    if (FB_Adr <= FRAME_PIXELS-1) then
                         FB_We <= '1';
                         FB_Adr <= FB_Adr + 1;
                     else
@@ -248,7 +255,7 @@ begin
             end if;
         end if;
     end process;
-    
+       
     MAC_SF: process(Clk)
     begin
         if(rising_edge(Clk)) then
@@ -318,6 +325,7 @@ begin
     Generate_Pipeline1: for i in 0 to 7 generate
         Step1: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe0(2*i),
                 Value_B => Median_Pipe0((2*i)+1),
                 Lesser  => Median_Pipe1(2*i),
@@ -331,6 +339,7 @@ begin
     Generate_Pipeline2: for i in 0 to 3 generate
         Step2: Bitonic_Sorter   -- Sort outer values of 4 samples
             port map (
+                Clk     => Clk,                
                 Value_A => Median_Pipe1(4*i),
                 Value_B => Median_Pipe1((4*i)+3),
                 Lesser  => Median_Pipe2(4*i),
@@ -338,6 +347,7 @@ begin
             );
         Step3: Bitonic_Sorter   -- Sort inner values of 4 samples
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe1((4*i)+1),
                 Value_B => Median_Pipe1((4*i)+2),
                 Lesser  => Median_Pipe2((4*i)+1),
@@ -348,6 +358,7 @@ begin
     Generate_Pipeline3: for i in 0 to 7 generate    -- Compare by pairing values
         Step4: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe2(2*i),
                 Value_B => Median_Pipe2((2*i)+1),
                 Lesser  => Median_Pipe3(2*i),
@@ -361,6 +372,7 @@ begin
     Generate_Pipeline4: for i in 0 to 1 generate
         Step5: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe3(8*i),
                 Value_B => Median_Pipe3((8*i)+7),
                 Lesser  => Median_Pipe4(8*i),
@@ -368,6 +380,7 @@ begin
             );
         Step6: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe3((8*i)+1),
                 Value_B => Median_Pipe3((8*i)+6),
                 Lesser  => Median_Pipe4((8*i)+1),
@@ -375,6 +388,7 @@ begin
             );
         Step7: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe3((8*i)+2),
                 Value_B => Median_Pipe3((8*i)+5),
                 Lesser  => Median_Pipe4((8*i)+2),
@@ -382,6 +396,7 @@ begin
             );
         Step8: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe3((8*i)+3),
                 Value_B => Median_Pipe3((8*i)+4),
                 Lesser  => Median_Pipe4((8*i)+3),
@@ -392,6 +407,7 @@ begin
     Generate_Pipeline5: for i in 0 to 3 generate
         Step9: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe4(4*i),
                 Value_B => Median_Pipe4((4*i)+2),
                 Lesser  => Median_Pipe5(4*i),
@@ -399,6 +415,7 @@ begin
             );
         Step10: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe4((4*i)+1),
                 Value_B => Median_Pipe4((4*i)+3),
                 Lesser  => Median_Pipe5((4*i)+1),
@@ -409,6 +426,7 @@ begin
     Generate_Pipeline6: for i in 0 to 7 generate
         Step11: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe5(2*i),
                 Value_B => Median_Pipe5((2*i)+1),
                 Lesser  => Median_Pipe6(2*i),
@@ -423,6 +441,7 @@ begin
     Generate_Pipeline7: for i in 0 to 7 generate
         Step12: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe6(i),
                 Value_B => Median_Pipe6((i+15)-(2*i)),
                 Lesser  => Median_Pipe7(i),
@@ -433,6 +452,7 @@ begin
     Generate_Pipeline8: for i in 0 to 3 generate
         Step13: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe7(i),
                 Value_B => Median_Pipe7(i+4),
                 Lesser  => Median_Pipe8(i),
@@ -440,6 +460,7 @@ begin
             );
         Step14: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe7(i+8),
                 Value_B => Median_Pipe7(i+12),
                 Lesser  => Median_Pipe8(i+8),
@@ -451,6 +472,7 @@ begin
         EVEN: if (i=0 or i=2 or i=4 or i=6) generate
             Step15: Bitonic_Sorter
                 port map (
+                    Clk     => Clk,
                     Value_A => Median_Pipe8(2*i),
                     Value_B => Median_Pipe8((2*i)+2),
                     Lesser  => Median_Pipe9(2*i),
@@ -460,6 +482,7 @@ begin
         ODD: if (i=1 or i=3 or i=5 or i=7) generate
             Step16: Bitonic_Sorter
                 port map (
+                    Clk     => Clk,
                     Value_A => Median_Pipe8((2*i)-1),
                     Value_B => Median_Pipe8((2*i)+1),
                     Lesser  => Median_Pipe9((2*i)-1),
@@ -471,6 +494,7 @@ begin
     Generate_Pipeline10: for i in 0 to 7 generate
         Step17: Bitonic_Sorter
             port map (
+                Clk     => Clk,
                 Value_A => Median_Pipe9(2*i),
                 Value_B => Median_Pipe9((2*i)+1),
                 Lesser  => Median_Pipe10(2*i),
