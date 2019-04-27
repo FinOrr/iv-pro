@@ -35,134 +35,327 @@ entity Median_Filter is
         i_Data      : in std_logic_vector(BPP-1 downto 0);      -- Input data, one pixel at a time
         i_Enable    : in std_logic;                             -- Sort enable toggle
         -- Output 
-        o_Finish    : out std_logic;                            -- Pulses high when sort has finished.
-        o_Data      : out std_logic_vector(BPP-1 downto 0)      -- Median value
+        o_FBO_Adr   : out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);    -- Frame buffer address
+        o_FBO_Data  : out std_logic_vector(BPP-1 downto 0);      -- Median value
+        o_FBO_We    : out std_logic
     );
 end Median_Filter;
 
 architecture Behavioral of Median_Filter is
     
-    type t_Data_Array is array (8 downto 0) of unsigned(BPP-1 downto 0);
-    signal Input_Array : t_Data_Array := (others => (others => '0'));
+    component Bitonic_Sorter is
+        port (
+            -- Inputs
+            Clk     : in std_logic;
+            Value_A : in unsigned(BPP-1 downto 0);
+            Value_B : in unsigned(BPP-1 downto 0);
+            -- Outputs
+            Lesser  : out unsigned(BPP-1 downto 0);
+            Greater : out unsigned(BPP-1 downto 0)
+        );
+    end component;
+        
+    component RAM_LB is
+        port (
+            Clk   : in std_logic;                     -- RAM write port clock
+            Adr   : in std_logic_vector(LB_ADR_BUS_WIDTH-1 downto 0);
+            Di    : in std_logic_vector(BPP-1 downto 0);    
+            We    : in std_logic;                     -- Port A Enable
+            Do    : out std_logic_vector(BPP-1 downto 0)
+        );
+    end component;
     
-    type t_Median_Array is array (15 downto 0) of unsigned(BPP-1 downto 0);
-    signal Median : t_Median_Array := (others => (others => '0'));
+    -- Internal linebuffer control signals
+    signal LB_Adr : unsigned(LB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
+    signal LB0_Do       : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal LB1_Do       : std_logic_vector(BPP-1 downto 0) := (others => '0');
     
-    signal Step_Counter : natural range 0 to 4 := 0;
+    -- Output frame buffer control signals
+    signal FBO_Adr      : unsigned(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
+    signal FBO_We       : std_logic := '0';
+    
+    -- Median sort signals
+    signal Median_Pipe0  : Median_Array := (others => (others => '0'));     -- Unsorted, weighted array of pixel values
+    signal Median_Pipe1  : Median_Array := (others => (others => '0'));     -- First pass bitonic sort (2 value packets)
+    signal Median_Pipe2  : Median_Array := (others => (others => '0'));     -- Second pass bitonic sort (4 value packets)
+    signal Median_Pipe3  : Median_Array := (others => (others => '0'));     -- Third pass bitonic sort (8 value packets) 
+    signal Median_Pipe4  : Median_Array := (others => (others => '0'));     -- Final pass bitonic sort (ascending order, [0] = lowest val, [15] = highest val, [7] = median value)
+    signal Median_Pipe5  : Median_Array := (others => (others => '0'));     -- Final pass bitonic sort (ascending order, [0] = lowest val, [15] = highest val, [7] = median value)
+    signal Median_Pipe6  : Median_Array := (others => (others => '0'));     -- Final pass bitonic sort (ascending order, [0] = lowest val, [15] = highest val, [7] = median value)
+    signal Median_Pipe7  : Median_Array := (others => (others => '0'));     -- Final pass bitonic sort (ascending order, [0] = lowest val, [15] = highest val, [7] = median value)
+    signal Median_Pipe8  : Median_Array := (others => (others => '0'));     -- Final pass bitonic sort (ascending order, [0] = lowest val, [15] = highest val, [7] = median value)
+    signal Median_Pipe9  : Median_Array := (others => (others => '0'));     -- Final pass bitonic sort (ascending order, [0] = lowest val, [15] = highest val, [7] = median value)
+    signal Median_Pipe10 : Median_Array := (others => (others => '0'));     -- Final pass bitonic sort (ascending order, [0] = lowest val, [15] = highest val, [7] = median value)
+    
 begin
 
-    with Step_Counter select o_Data <=
-        std_logic_vector(Median(8)) when 0, (others => 'Z') when others;
+    ----------------------------------------------
+    ------         Lines Buffers            ------
+    ----------------------------------------------
+    Line_Buffer0: RAM_LB
+        port map (
+            Clk   => Clk,
+            Adr   => std_logic_vector(LB_Adr),
+            Di    => i_Data,
+            We    => '1',
+            Do    => LB0_Do
+        );
+        
+    Line_Buffer1: RAM_LB
+        port map (       
+            -- CLOCK 
+            Clk     => Clk,
+            -- PORT A
+            Adr   => std_logic_vector(LB_Adr),
+            Di    => LB0_Do,
+            We    => '1',
+            Do    => LB1_Do
+        );
 
-    Sort: process(Clk)
+
+    ----------------------------------------------
+    ------          I/O Control             ------
+    ----------------------------------------------
+    o_FBO_Adr <= std_logic_vector(FBO_Adr);
+    o_FBO_Data <= std_logic_vector(Median_Pipe10(8));
+
+    
+    ----------------------------------------------
+    ----          Address Controller          ----
+    ----------------------------------------------
+    ADR_CTRL: process(Clk)
     begin
         if (rising_edge(Clk)) then
             if (i_Enable = '1') then
-                case Step_Counter is
-                    when 0 =>
-                        o_Finish <= '0';
-                        -- LOAD MEDIAN ARRAY WITH VALUES
-                        -- Bitonic merge sort requires 2^N values, so force n(0) => 0
-                        -- Weighted median filter, corner pixels lowest weighting, centre pixel highest weighting
-                        Median(0) <= (others => '0');       -- Padding value 
-                        -- Shift new data into array
-                        Median(1) <= unsigned(i_Data);      -- Z1            
-                        -- Shift data according to k
-                        Median(2) <= Median(1);             -- Z2            
-                        Median(3) <= Median(1);             -- Z2            
-                        Median(4) <= Median(3);             -- Z3            
-                        Median(5) <= Median(4);             -- Z4            
-                        Median(6) <= Median(4);             -- Z4            
-                        Median(7) <= Median(6);             -- Z5            
-                        Median(8) <= Median(6);             -- Z5            
-                        Median(9) <= Median(6);             -- Z5            
-                        Median(10) <= Median(9);            -- Z6            
-                        Median(11) <= Median(9);            -- Z6            
-                        Median(12) <= Median(11);           -- Z7            
-                        Median(13) <= Median(12);           -- Z8            
-                        Median(14) <= Median(12);           -- Z8            
-                        Median(15) <= Median(14);           -- Z9            
-                        Step_Counter <= Step_Counter + 1;
-                        
-                    when 1 =>
-                    -- SORT STEP 1
-                        -- STAGE 1
-                        for i in 0 to 7 loop
-                            if (Median(i) > Median(i+8)) then
-                                Median(i) <= Median(i+8);
-                                Median(i+8) <= Median(i);
-                            end if;
-                        end loop;
-                        Step_Counter <= Step_Counter + 1;
-                        
-                    when 2 =>
-                    -- SORT STEP 2
-                        -- STAGE 1
-                        for i in 0 to 3 loop
-                            if (Median(i) > Median(i+4)) then
-                                Median(i) <= Median(i+4);
-                                Median(i+4) <= Median(i);
-                            end if;
-                        end loop;
-                        -- STAGE 2
-                        for i in 8 to 11 loop
-                            if (Median(i) > Median (i+4)) then
-                                Median(i) <= Median(i+4);
-                                Median(i+4) <= Median(i);
-                            end if;
-                        end loop;
-                        Step_Counter <= Step_Counter + 1;
-                        
-                    when 3 =>
-                    -- SORT STEP 3: Stages could be nested within another FOR loop to reduce further
-                        -- STAGE 1
-                        for i in 0 to 1 loop
-                            if (Median(i) > Median (i+2)) then
-                                Median(i) <= Median(i+2);
-                                Median(i+2) <= Median(i);
-                            end if;
-                        end loop;
-                        -- STAGE 2
-                        for i in 4 to 5 loop
-                            if (Median(i) > Median (i+2)) then
-                                Median(i) <= Median(i+2);
-                                Median(i+2) <= Median(i);
-                            end if;
-                        end loop;
-                        -- STAGE 3
-                        for i in 8 to 9 loop
-                            if (Median(i) > Median (i+2)) then
-                                Median(i) <= Median(i+2);
-                                Median(i+2) <= Median(i);
-                            end if;
-                        end loop;
-                        -- STAGE 4
-                        for i in 12 to 13 loop
-                            if (Median(i) > Median (i+2)) then
-                                Median(i) <= Median(i+2);
-                                Median(i+2) <= Median(i);
-                            end if;
-                        end loop;
-                        Step_Counter <= Step_Counter + 1;
-                        
-                    when 4 =>
-                    -- SORT STEP 4
-                        -- STAGE 1
-                        for i in 0 to 7 loop
-                            if (Median(2*i) > Median(2*i+1)) then
-                                Median(2*i+1) <= Median(2*i);
-                                Median(2*i) <= Median(2*i+1);
-                            end if;
-                        end loop;
-                        Step_Counter <= 0;
-                        o_Finish <= '1';
-                        
-                    when others =>
-                        o_Finish <= 'Z';
-                        Step_Counter <= 0;
-                end case;
+                if (LB_Adr < FRAME_WIDTH-1) then      -- If not end of line
+                    LB_Adr <= LB_Adr + 1;         -- Move to next pixel   
+                     
+                else
+                    LB_Adr <= (others => '0');         -- If end of line, reset LB address
+                end if;
+                
+                if (FBO_Adr < FRAME_PIXELS-1) then
+                    FBO_Adr <= FBO_Adr + 1;
+                else
+                    FBO_Adr <= (others => '0');
+                end if;
             end if;
-        end if;     
+        end if;
     end process;
-
+    
+    
+    ---------------------------------------------------------------
+    ----                                                       ----
+    -- Fully pipelined median sort using bitonic merge algorithm --
+    ----                                                       ----
+    ---------------------------------------------------------------
+    Sort: process(Clk)
+    begin
+        if (rising_edge(Clk)) then
+            if (i_Enable = '1') then 
+                -- Shift data into weighted median array, stage 0 of the pipeline
+                -- First row of window pixel values
+                Median_Pipe0(0)  <= unsigned(i_Data);        -- Push new pixel data in
+                Median_Pipe0(1)  <= Median_Pipe0(0);
+                Median_Pipe0(2)  <= Median_Pipe0(0);
+                Median_Pipe0(3)  <= Median_Pipe0(2);
+                -- Second row of window values
+                Median_Pipe0(4)  <= unsigned(LB0_Do);        -- Push new pixel value into row
+                Median_Pipe0(5)  <= unsigned(LB0_Do);
+                Median_Pipe0(6)  <= Median_Pipe0(5);
+                Median_Pipe0(7)  <= Median_Pipe0(5);
+                Median_Pipe0(8)  <= Median_Pipe0(5);
+                Median_Pipe0(9)  <= Median_Pipe0(5);
+                Median_Pipe0(10) <= Median_Pipe0(9);
+                Median_Pipe0(11) <= Median_Pipe0(9);
+                Median_Pipe0(12) <= unsigned(LB1_Do);
+                Median_Pipe0(13) <= Median_Pipe0(12);
+                Median_Pipe0(14) <= Median_Pipe0(12);
+                Median_Pipe0(15) <= Median_Pipe0(14);
+            end if;     
+        end if;
+    end process;
+                    
+    ----------------------------------------------
+    --                  STAGE 1                 --
+    ----------------------------------------------
+    Generate_Pipeline1: for i in 0 to 7 generate
+        Step1: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe0(2*i),
+                Value_B => Median_Pipe0((2*i)+1),
+                Lesser  => Median_Pipe1(2*i),
+                Greater => Median_Pipe1((2*i)+1)
+            );
+    end generate;
+    
+    ----------------------------------------------
+    --                  STAGE 2                 --
+    ----------------------------------------------       
+    Generate_Pipeline2: for i in 0 to 3 generate
+        Step2: Bitonic_Sorter   -- Sort outer values of 4 samples
+            port map (
+                Clk     => Clk,                
+                Value_A => Median_Pipe1(4*i),
+                Value_B => Median_Pipe1((4*i)+3),
+                Lesser  => Median_Pipe2(4*i),
+                Greater => Median_Pipe2((4*i)+3)
+            );
+        Step3: Bitonic_Sorter   -- Sort inner values of 4 samples
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe1((4*i)+1),
+                Value_B => Median_Pipe1((4*i)+2),
+                Lesser  => Median_Pipe2((4*i)+1),
+                Greater => Median_Pipe2((4*i)+2)
+            );
+    end generate;
+    
+    Generate_Pipeline3: for i in 0 to 7 generate    -- Compare by pairing values
+        Step4: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe2(2*i),
+                Value_B => Median_Pipe2((2*i)+1),
+                Lesser  => Median_Pipe3(2*i),
+                Greater => Median_Pipe3((2*i)+1)
+            );
+    end generate;
+    
+    ----------------------------------------------
+    --                  STAGE 3                 --
+    ----------------------------------------------
+    Generate_Pipeline4: for i in 0 to 1 generate
+        Step5: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe3(8*i),
+                Value_B => Median_Pipe3((8*i)+7),
+                Lesser  => Median_Pipe4(8*i),
+                Greater => Median_Pipe4((8*i)+7)
+            );
+        Step6: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe3((8*i)+1),
+                Value_B => Median_Pipe3((8*i)+6),
+                Lesser  => Median_Pipe4((8*i)+1),
+                Greater => Median_Pipe4((8*i)+6)
+            );
+        Step7: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe3((8*i)+2),
+                Value_B => Median_Pipe3((8*i)+5),
+                Lesser  => Median_Pipe4((8*i)+2),
+                Greater => Median_Pipe4((8*i)+5)
+            );
+        Step8: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe3((8*i)+3),
+                Value_B => Median_Pipe3((8*i)+4),
+                Lesser  => Median_Pipe4((8*i)+3),
+                Greater => Median_Pipe4((8*i)+4)
+            );
+    end generate;
+    
+    Generate_Pipeline5: for i in 0 to 3 generate
+        Step9: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe4(4*i),
+                Value_B => Median_Pipe4((4*i)+2),
+                Lesser  => Median_Pipe5(4*i),
+                Greater => Median_Pipe5((4*i)+2)
+            );
+        Step10: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe4((4*i)+1),
+                Value_B => Median_Pipe4((4*i)+3),
+                Lesser  => Median_Pipe5((4*i)+1),
+                Greater => Median_Pipe5((4*i)+3)
+            );
+    end generate;
+    
+    Generate_Pipeline6: for i in 0 to 7 generate
+        Step11: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe5(2*i),
+                Value_B => Median_Pipe5((2*i)+1),
+                Lesser  => Median_Pipe6(2*i),
+                Greater => Median_Pipe6((2*i)+1)
+            );
+    end generate;
+        
+    
+    ----------------------------------------------
+    --                  STAGE 4                 --
+    ----------------------------------------------
+    Generate_Pipeline7: for i in 0 to 7 generate
+        Step12: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe6(i),
+                Value_B => Median_Pipe6((i+15)-(2*i)),
+                Lesser  => Median_Pipe7(i),
+                Greater => Median_Pipe7((i+15)-(2*i))
+            );
+    end generate;
+    
+    Generate_Pipeline8: for i in 0 to 3 generate
+        Step13: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe7(i),
+                Value_B => Median_Pipe7(i+4),
+                Lesser  => Median_Pipe8(i),
+                Greater => Median_Pipe8(i+4)
+            );
+        Step14: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe7(i+8),
+                Value_B => Median_Pipe7(i+12),
+                Lesser  => Median_Pipe8(i+8),
+                Greater => Median_Pipe8(i+12)
+            );
+    end generate;
+    
+    Generate_Pipeline9: for i in 0 to 7 generate
+        EVEN: if (i=0 or i=2 or i=4 or i=6) generate
+            Step15: Bitonic_Sorter
+                port map (
+                    Clk     => Clk,
+                    Value_A => Median_Pipe8(2*i),
+                    Value_B => Median_Pipe8((2*i)+2),
+                    Lesser  => Median_Pipe9(2*i),
+                    Greater => Median_Pipe9((2*i)+2)
+                );
+        end generate EVEN;
+        ODD: if (i=1 or i=3 or i=5 or i=7) generate
+            Step16: Bitonic_Sorter
+                port map (
+                    Clk     => Clk,
+                    Value_A => Median_Pipe8((2*i)-1),
+                    Value_B => Median_Pipe8((2*i)+1),
+                    Lesser  => Median_Pipe9((2*i)-1),
+                    Greater => Median_Pipe9((2*i)+1)
+                );
+        end generate ODD;
+    end generate;
+    
+    Generate_Pipeline10: for i in 0 to 7 generate
+        Step17: Bitonic_Sorter
+            port map (
+                Clk     => Clk,
+                Value_A => Median_Pipe9(2*i),
+                Value_B => Median_Pipe9((2*i)+1),
+                Lesser  => Median_Pipe10(2*i),
+                Greater => Median_Pipe10((2*i)+1)
+            );
+    end generate;
 end Behavioral;
