@@ -39,29 +39,35 @@ architecture Behavioral of TB_Median_Filter is
             i_Data      : in std_logic_vector(BPP-1 downto 0);      -- Input data, one pixel at a time
             i_Enable    : in std_logic;                             -- Sort enable toggle
             -- Output 
-            o_Finish    : out std_logic;                            -- Pulses high when sort has finished.
-            o_Data      : out std_logic_vector(BPP-1 downto 0)      -- Median value    
+            o_FBO_Adr   : out std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0);
+            o_FBO_Data  : out std_logic_vector(BPP-1 downto 0)      -- Median value
         );
     end component;
     
-    signal Clk : std_logic := '0';
-    signal Reset : std_logic := '0';
-    signal Data_In : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    signal Enable : std_logic := '1';
-    signal Finish : std_logic := '0';
-    signal Data_Out : std_logic_vector(BPP-1 downto 0) := (others => '0');
-    signal XNOR_BIT : std_logic := '0';
-    signal LFSR : std_logic_vector(32 downto 0) := "001010011010110010100011001101110";
+    signal Clk      : std_logic := '0';
+    signal Reset    : std_logic := '0';
+    signal Data_In  : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal Enable   : std_logic := '1';
+    signal FBO_Data : std_logic_vector(BPP-1 downto 0) := (others => '0');
+    signal FBO_Adr  : std_logic_vector(FB_ADR_BUS_WIDTH-1 downto 0) := (others => '0');
+        
+    type input_matrix is array (7 downto 0, 7 downto 0) of std_logic_vector(7 downto 0);
+    signal input_mat : input_matrix   := (others => (others => x"00"));
+
     
 begin
 
-    PRNG: process
-    begin
-        XNOR_BIT <= LFSR(32) XNOR LFSR(22) XNOR LFSR(2) XNOR LFSR(1);
-        LFSR <= LFSR(LFSR'left-1 downto 0) & XNOR_BIT; 
-        wait for 10 ns;
-    end process;
+    -- Input matrix has an average of 
+    input_mat <=   ((x"21", x"29", x"33", x"33", x"17", x"23", x"06", x"04"),               
+                    (x"07", x"18", x"06", x"33", x"27", x"09", x"2E", x"35"),
+                    (x"05", x"3A", x"16", x"15", x"08", x"33", x"20", x"04"),
+                    (x"07", x"3B", x"32", x"14", x"35", x"0B", x"18", x"32"),
+                    (x"0E", x"1F", x"22", x"22", x"22", x"38", x"23", x"27"),
+                    (x"22", x"0B", x"3F", x"11", x"36", x"2A", x"10", x"01"),
+                    (x"2E", x"23", x"2C", x"39", x"31", x"3E", x"39", x"38"),
+                    (x"3F", x"2D", x"1B", x"22", x"3B", x"1F", x"2F", x"35"));
     
+
     Clocking: process
     begin
         Clk <= '1';
@@ -70,10 +76,14 @@ begin
         wait for 5 ns;
     end process;
     
-    Input_Stimulus: process
+    Stimulus: process 
     begin
-        Data_In <= LFSR(10 downto 3);
-        wait for 10 ns;
+        for row in 0 to 7 loop
+            for col in 0 to 7 loop
+                Data_In <= input_mat(row, col);
+                wait for 10 ns;
+            end loop;
+        end loop;
     end process;
     
 --    Enabler: process
@@ -89,8 +99,8 @@ begin
             i_Reset => Reset,
             i_Data => Data_In,
             i_Enable => Enable,
-            o_Finish => Finish,
-            o_Data => Data_Out
+            o_FBO_Adr => FBO_Adr,
+            o_FBO_Data => FBO_Data
         );
         
 end Behavioral;

@@ -48,7 +48,6 @@ architecture Behavioral of TB_FIR_2D is
             i_Kernel            :   in  kernel;
             i_Scaling_Factor    :   in  std_logic_vector(3 downto 0);
             i_Data              :   in  std_logic_vector(7 downto 0);
-            i_Median_En         :   in  std_logic;
             -- OUTPUTS
             o_Data              :   out std_logic_vector(7 downto 0)
         );
@@ -60,7 +59,7 @@ architecture Behavioral of TB_FIR_2D is
     signal sf               : std_logic_vector(3 downto 0)  := x"3";             -- shift by 3 = divide by 8
     signal input_mat        : input_matrix                  := (others => (others => x"00"));
     signal input, output    : std_logic_vector(7 downto 0)  := x"00";
-    signal median           : std_logic                     := '1';
+    signal median           : std_logic                     := '0';
     signal en               : std_logic                     := '1';
 begin
     -- Input matrix has an average of 
