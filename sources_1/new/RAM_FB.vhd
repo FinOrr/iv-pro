@@ -44,7 +44,7 @@ end RAM_FB;
 architecture Behavioral of RAM_FB is
 
     -- RAM Declaration
-    type t_RAM_FB is array (FRAME_PIXELS - 1 downto 0) of std_logic_vector(BPP-1 downto 0);  -- Currently testing 8 bits per pixel, 480p
+    type t_RAM_FB is array (FRAME_PIXELS-1 downto 0) of std_logic_vector(BPP-1 downto 0);  -- Currently testing 8 bits per pixel, 480p
     signal RAM : t_RAM_FB := (others => (others => '0'));
     
 begin
